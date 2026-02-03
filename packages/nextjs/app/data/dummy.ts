@@ -25,6 +25,13 @@ export type PoolData = {
   prizePoolCurrency: string;
   minBetAmount: number;
   topBets: PoolBet[];
+  // Result data for closed pools
+  result?: {
+    outcome: "YES" | "NO";
+    resultDescription: string;
+    winnerMultiplier: number;
+    loserMessage: string;
+  };
 };
 
 /**
@@ -105,6 +112,12 @@ export const POOLS_DATA: PoolData[] = [
       { id: "2", username: "CryptoKing", amount: 25.0 },
       { id: "3", username: "Anonymous User", amount: 20.0 },
     ],
+    result: {
+      outcome: "YES",
+      resultDescription: "15 people did bet on this event.",
+      winnerMultiplier: 1.6,
+      loserMessage: "A return of their investment for those who did'nt make it. There's always next time for you guys!",
+    },
   },
   {
     id: 3,
@@ -139,6 +152,12 @@ export const POOLS_DATA: PoolData[] = [
       { id: "1", username: "SportsGuru", amount: 40.0, isHighest: true },
       { id: "2", username: "Anonymous User", amount: 20.0 },
     ],
+    result: {
+      outcome: "NO",
+      resultDescription: "The prediction did not come true.",
+      winnerMultiplier: 2.1,
+      loserMessage: "A return of their investment for those who did'nt make it. There's always next time for you guys!",
+    },
   },
 ];
 
