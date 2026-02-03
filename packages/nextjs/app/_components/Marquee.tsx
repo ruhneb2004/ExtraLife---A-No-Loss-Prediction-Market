@@ -4,23 +4,18 @@ import { Card, CardItem } from "./Card";
 
 /**
  * MARQUEE COMPONENT
- * Client component for CSS animation interaction (hover pause)
+ * Infinite seamless marquee - cards fill screen and loop continuously
  */
 export const Marquee = ({ items }: { items: CardItem[] }) => {
+  // Double the items for seamless loop
+  const duplicatedItems = [...items, ...items];
+
   return (
     <div className="relative w-full overflow-hidden py-10">
-      <div className="flex w-max animate-marquee pl-10">
-        {/* Set 1 */}
-        {items.map(item => (
-          <Card key={`a-${item.id}`} item={item} />
-        ))}
-        {/* Set 2 */}
-        {items.map(item => (
-          <Card key={`b-${item.id}`} item={item} />
-        ))}
-        {/* Set 3 */}
-        {items.map(item => (
-          <Card key={`c-${item.id}`} item={item} />
+      <div className="flex w-max animate-marquee">
+        {/* First set of cards */}
+        {duplicatedItems.map((item, index) => (
+          <Card key={`${item.id}-${index}`} item={item} />
         ))}
       </div>
     </div>

@@ -1,3 +1,6 @@
+"use client";
+
+import { useRouter } from "next/navigation";
 import { ArrowUpRight } from "lucide-react";
 
 export type CardItem = {
@@ -13,10 +16,18 @@ export type CardItem = {
  * CARD COMPONENT
  * Matches the deep shadow look without the border.
  * Uses Clash Display font.
+ * Clickable - navigates to pool detail page.
  */
 export const Card = ({ item }: { item: CardItem }) => {
+  const router = useRouter();
+
+  const handleClick = () => {
+    router.push(`/pool/${item.id}`);
+  };
+
   return (
     <div
+      onClick={handleClick}
       className="
       group
       relative 
@@ -28,6 +39,9 @@ export const Card = ({ item }: { item: CardItem }) => {
       flex flex-col justify-between
       shadow-[16px_16px_0px_0px_rgba(0,0,0,1)]
       mr-16
+      cursor-pointer
+      transition-transform duration-300
+      hover:scale-[1.02]
     "
       style={{ fontFamily: "'Clash Display', sans-serif" }}
     >

@@ -1,76 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { POOLS_DATA } from "../../data/dummy";
 import { ArrowUpRight, Search } from "lucide-react";
 
-type Pool = {
-  id: number;
-  title: string;
-  description: string;
-  status: "live" | "closed" | "resolved";
-  totalPool: string;
-  participants: number;
-  endsAt: string;
+type PoolStatus = "live" | "closed" | "resolved";
+
+const getStatusFromPoolData = (status: string): PoolStatus => {
+  if (status === "Currently live!") return "live";
+  if (status === "Voting closed" || status === "Prize pool paid out!") return "closed";
+  return "resolved";
 };
 
-const MOCK_POOLS: Pool[] = [
-  {
-    id: 1,
-    title: "Will 15 people bet on this event?",
-    description: "Do you think ATLEAST 15 people will bet on this during this demo?",
-    status: "live",
-    totalPool: "2.5 ETH",
-    participants: 12,
-    endsAt: "2h 30m",
-  },
-  {
-    id: 2,
-    title: "Will Bitcoin hit $100k in 2024?",
-    description: "Market analysis suggests a strong bullish trend. Place your predictions now.",
-    status: "live",
-    totalPool: "15.2 ETH",
-    participants: 89,
-    endsAt: "5d 12h",
-  },
-  {
-    id: 3,
-    title: "Who wins the Super Bowl?",
-    description: "The odds are shifting. Lock in your choices before the playoffs begin.",
-    status: "live",
-    totalPool: "8.7 ETH",
-    participants: 156,
-    endsAt: "30d",
-  },
-  {
-    id: 4,
-    title: "ETH to flip BTC market cap?",
-    description: "Will Ethereum surpass Bitcoin in total market capitalization by end of year?",
-    status: "live",
-    totalPool: "42.1 ETH",
-    participants: 312,
-    endsAt: "28d",
-  },
-  {
-    id: 5,
-    title: "Next US President prediction",
-    description: "Who will win the upcoming presidential election?",
-    status: "closed",
-    totalPool: "125.8 ETH",
-    participants: 2451,
-    endsAt: "Ended",
-  },
-  {
-    id: 6,
-    title: "Will AI pass the Turing test?",
-    description: "Can an AI convince a panel of judges it's human by 2025?",
-    status: "live",
-    totalPool: "5.3 ETH",
-    participants: 67,
-    endsAt: "180d",
-  },
-];
-
-const getStatusStyles = (status: Pool["status"]) => {
+const getStatusStyles = (status: PoolStatus) => {
   switch (status) {
     case "live":
       return { dot: "bg-[#86efac]", text: "Currently live!" };
@@ -81,11 +24,18 @@ const getStatusStyles = (status: Pool["status"]) => {
   }
 };
 
-const PoolCard = ({ pool }: { pool: Pool }) => {
-  const statusStyles = getStatusStyles(pool.status);
+const PoolCard = ({ pool }: { pool: (typeof POOLS_DATA)[0] }) => {
+  const router = useRouter();
+  const status = getStatusFromPoolData(pool.status);
+  const statusStyles = getStatusStyles(status);
+
+  const handleClick = () => {
+    router.push(`/pool/${pool.id}`);
+  };
 
   return (
     <div
+      onClick={handleClick}
       className="group relative bg-white rounded-[32px] p-8 flex flex-col justify-between shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] hover:shadow-[16px_16px_0px_0px_rgba(0,0,0,1)] transition-all duration-300 cursor-pointer min-h-[320px]"
       style={{ fontFamily: "'Clash Display', sans-serif" }}
     >
@@ -104,22 +54,24 @@ const PoolCard = ({ pool }: { pool: Pool }) => {
         <div className="flex items-center justify-between mb-4 text-sm">
           <div>
             <span className="text-gray-400">Pool Size</span>
-            <p className="text-black font-semibold text-lg">{pool.totalPool}</p>
+            <p className="text-black font-semibold text-lg">
+              {pool.prizePool} {pool.prizePoolCurrency}
+            </p>
           </div>
           <div>
-            <span className="text-gray-400">Participants</span>
-            <p className="text-black font-semibold text-lg">{pool.participants}</p>
+            <span className="text-gray-400">Top Bets</span>
+            <p className="text-black font-semibold text-lg">{pool.topBets.length}</p>
           </div>
           <div>
-            <span className="text-gray-400">Ends In</span>
-            <p className="text-black font-semibold text-lg">{pool.endsAt}</p>
+            <span className="text-gray-400">Time Left</span>
+            <p className="text-black font-semibold text-lg">{pool.timeLeft.replace(" left", "")}</p>
           </div>
         </div>
 
         {/* Action Button */}
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium text-[#a88ff0]">
-            {pool.status === "live" ? "Place Prediction" : "View Results"}
+            {status === "live" ? "Place Prediction" : "View Results"}
           </span>
           <div className="bg-[#a88ff0] p-3 rounded-2xl text-white transform transition-transform duration-300 group-hover:rotate-45 group-hover:scale-110">
             <ArrowUpRight size={24} strokeWidth={3} />
@@ -130,7 +82,7 @@ const PoolCard = ({ pool }: { pool: Pool }) => {
   );
 };
 
-const PoolsGrid = ({ pools }: { pools: Pool[] }) => {
+const PoolsGrid = ({ pools }: { pools: typeof POOLS_DATA }) => {
   if (pools.length === 0) {
     return (
       <div
@@ -156,11 +108,12 @@ export const PoolsExplorer = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const filteredPools = MOCK_POOLS.filter(pool => {
+  const filteredPools = POOLS_DATA.filter(pool => {
     const matchesSearch =
       pool.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       pool.description.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === "all" || pool.status === statusFilter;
+    const poolStatus = getStatusFromPoolData(pool.status);
+    const matchesStatus = statusFilter === "all" || poolStatus === statusFilter;
     return matchesSearch && matchesStatus;
   });
 

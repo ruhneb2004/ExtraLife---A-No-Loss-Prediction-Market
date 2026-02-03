@@ -15,18 +15,17 @@ export const GlobalStyles = () => {
         font-family: "Space Grotesk", sans-serif;
       }
 
-      @keyframes scroll {
+      @keyframes marquee-infinite {
         0% {
-          transform: translateX(-100%);
+          transform: translateX(-50%);
         }
         100% {
-          transform: translateX(0%);
+          transform: translateX(0);
         }
       }
 
       .animate-marquee {
-        /* Runs once (1) and stops at the end (forwards) */
-        animation: scroll 100s linear 1 forwards;
+        animation: marquee-infinite 60s linear infinite;
       }
       .animate-marquee:hover {
         animation-play-state: paused;
