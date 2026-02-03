@@ -4,3 +4,4 @@ export { ConnectWalletButton } from "./ConnectWalletButton";
 export { GlobalStyles } from "./GlobalStyles";
 export { Marquee } from "./Marquee";
 export { Sidebar } from "./Sidebar";
+export { TopNav } from "./TopNav";

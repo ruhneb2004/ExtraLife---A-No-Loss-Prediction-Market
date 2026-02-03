@@ -1,4 +1,4 @@
-import { BackgroundDecorations, ConnectWalletButton, GlobalStyles, Marquee, Sidebar } from "./_components";
+import { BackgroundDecorations, GlobalStyles, Marquee, Sidebar, TopNav } from "./_components";
 import { LANDING_CARDS } from "./data/dummy";
 
 /**
@@ -11,10 +11,8 @@ export default function Home() {
 
       <Sidebar />
 
-      {/* Connect Wallet Button - Top Right */}
-      <div className="fixed top-8 right-8 z-30">
-        <ConnectWalletButton />
-      </div>
+      {/* Top Navigation */}
+      <TopNav />
 
       {/* Main Content Area - ML matches sidebar width */}
       <main className="flex-1 ml-[150px] relative flex flex-col justify-center h-full">

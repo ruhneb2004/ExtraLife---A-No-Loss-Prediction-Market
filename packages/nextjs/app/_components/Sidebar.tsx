@@ -16,19 +16,20 @@ export const Sidebar = () => {
   return (
     <aside className="w-[150px] h-full border-r border-gray-100 flex flex-col justify-between items-center py-10 z-20 bg-white/80 backdrop-blur-sm fixed left-0 top-0">
       <div className="mt-8 whitespace-nowrap">
-        <span
-          className="text-gray-400"
+        <Link
+          href="/"
+          className="text-black hover:text-[#a88ff0] transition-colors"
           style={{
             fontFamily: "'Clash Display', sans-serif",
-            fontWeight: 500,
-            fontSize: "24px",
+            fontWeight: 700,
+            fontSize: "20px",
             fontStyle: "normal",
             lineHeight: "100%",
-            letterSpacing: "0",
+            letterSpacing: "-0.5px",
           }}
         >
-          nomono.
-        </span>
+          ExtraLife
+        </Link>
       </div>
 
       {isCreatePage ? (

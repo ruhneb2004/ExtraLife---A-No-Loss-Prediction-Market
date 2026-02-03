@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ConnectWalletButton, GlobalStyles, Sidebar } from "../../_components";
+import { ConnectWalletButton, GlobalStyles, Sidebar, TopNav } from "../../_components";
 import { DashboardContent } from "./DashboardContent";
 import { useAccount } from "wagmi";
 
@@ -58,10 +58,8 @@ export const DashboardPageContent = () => {
 
       <Sidebar />
 
-      {/* Connect Wallet Button - Top Right */}
-      <div className="fixed top-8 right-8 z-30">
-        <ConnectWalletButton />
-      </div>
+      {/* Top Navigation */}
+      <TopNav />
 
       {/* Main Content Area */}
       <main className="flex-1 ml-[150px] relative py-12 px-12">

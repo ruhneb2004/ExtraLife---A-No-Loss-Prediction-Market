@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { useAccount } from "wagmi";
 import { ConnectWalletButton } from "~~/app/_components/ConnectWalletButton";
 import { Sidebar } from "~~/app/_components/Sidebar";
+import { TopNav } from "~~/app/_components/TopNav";
+import { useCreatePool, useUsdcBalance } from "~~/hooks/useMarketController";
+import { notification } from "~~/utils/scaffold-eth";
 
 // Constants for yield calculation
 const AAVE_APY = 3.5; // 3.5% APY from Aave
@@ -28,6 +31,10 @@ export const CreatePoolPageContent = () => {
   const [betQuestion, setBetQuestion] = useState("");
   const [stakeAmount, setStakeAmount] = useState("");
   const [bettingPeriod, setBettingPeriod] = useState("");
+
+  // Contract hooks
+  const { createPool, isPending } = useCreatePool();
+  const { balanceFormatted } = useUsdcBalance();
 
   // Validate and set stake amount (only positive numbers)
   const handleStakeChange = (value: string) => {
@@ -68,14 +75,35 @@ export const CreatePoolPageContent = () => {
     };
   }, [stakeAmount, bettingPeriod]);
 
-  const handleSubmit = () => {
-    console.log({
-      betQuestion,
-      stakeAmount,
-      bettingPeriod,
-      yieldCalculations,
-    });
-    router.push("/pools");
+  const handleSubmit = async () => {
+    try {
+      const stake = parseFloat(stakeAmount);
+      const days = parseInt(bettingPeriod);
+
+      if (!betQuestion.trim() || stake <= 0 || days <= 0) {
+        notification.error("Please fill in all fields correctly");
+        return;
+      }
+
+      notification.info("Creating pool... Please approve USDC spending first.");
+
+      await createPool(betQuestion, days, stake);
+
+      notification.success("Pool created successfully!");
+      router.push("/pools");
+    } catch (error: unknown) {
+      console.error("Error creating pool:", error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to create pool";
+
+      // Check for Aave-specific errors
+      if (errorMessage.includes("51")) {
+        notification.error("Aave supply cap exceeded. Try a smaller amount (e.g., 1-10 USDC) or try again later.");
+      } else if (errorMessage.includes("allowance")) {
+        notification.error("USDC approval failed. Please try again.");
+      } else {
+        notification.error(errorMessage);
+      }
+    }
   };
 
   const isFormValid = betQuestion.trim() !== "" && parseFloat(stakeAmount) > 0 && parseFloat(bettingPeriod) > 0;
@@ -108,10 +136,8 @@ export const CreatePoolPageContent = () => {
       <FontStyles />
       <Sidebar />
 
-      {/* Top Right Wallet (Desktop) */}
-      <div className="fixed top-8 right-8 z-30 hidden lg:block">
-        <ConnectWalletButton />
-      </div>
+      {/* Top Navigation */}
+      <TopNav />
 
       <main className="flex-1 lg:ml-[240px] relative px-12 py-16 max-w-[1000px]">
         {/* Header Section */}
@@ -124,6 +150,10 @@ export const CreatePoolPageContent = () => {
           </h1>
           <p className="text-gray-500 text-lg font-light">
             Create a pool and ensure constant returns on your investments.
+          </p>
+          <p className="text-sm text-gray-400 mt-2">
+            Your USDC Balance:{" "}
+            <span className="font-semibold text-black">{parseFloat(balanceFormatted).toFixed(2)} USDC</span>
           </p>
         </div>
 
@@ -155,7 +185,7 @@ export const CreatePoolPageContent = () => {
               >
                 Stake Amount:
               </label>
-              <span className="text-gray-400 text-sm font-light">Your initial investment (in ETH)</span>
+              <span className="text-gray-400 text-sm font-light">Your initial investment (in USDC)</span>
             </div>
             <input
               type="text"
@@ -191,25 +221,42 @@ export const CreatePoolPageContent = () => {
           </div>
 
           {/* Yield Preview */}
-          <div className="bg-gray-50 border-2 border-gray-200 rounded-xl p-6">
-            <h3 className="text-lg font-bold text-black mb-2" style={{ fontFamily: "'Clash Display', sans-serif" }}>
-              Estimated Yield Preview:
+          <div className="bg-[#a88ff0]/5 border-2 border-[#a88ff0]/30 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-black mb-4" style={{ fontFamily: "'Clash Display', sans-serif" }}>
+              Projected Returns
             </h3>
-            <p className="text-xs text-gray-500 mb-4">Based on {AAVE_APY}% APY from Aave</p>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Total Yield Generated:</span>
-                <span className="text-lg font-semibold text-black">{yieldCalculations.totalYield} ETH</span>
+            <div className="space-y-4">
+              <div className="flex justify-between items-center pb-3 border-b border-gray-200">
+                <span className="text-gray-600" style={{ fontFamily: "'Clash Display', sans-serif" }}>
+                  Total Yield
+                </span>
+                <span className="text-xl font-bold text-black" style={{ fontFamily: "'Clash Display', sans-serif" }}>
+                  {yieldCalculations.totalYield} USDC
+                </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-600">Your Share ({CREATOR_SHARE}%):</span>
-                <span className="text-lg font-semibold text-emerald-600">{yieldCalculations.creatorYield} ETH</span>
+                <span className="text-gray-600" style={{ fontFamily: "'Clash Display', sans-serif" }}>
+                  Your Earnings ({CREATOR_SHARE}%)
+                </span>
+                <span
+                  className="text-xl font-bold text-[#a88ff0]"
+                  style={{ fontFamily: "'Clash Display', sans-serif" }}
+                >
+                  {yieldCalculations.creatorYield} USDC
+                </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-600">Current Prize Pool ({PRIZE_POOL_SHARE}%):</span>
-                <span className="text-lg font-semibold text-blue-600">{yieldCalculations.prizePool} ETH</span>
+                <span className="text-gray-600" style={{ fontFamily: "'Clash Display', sans-serif" }}>
+                  Winner Prize Pool ({PRIZE_POOL_SHARE}%)
+                </span>
+                <span className="text-xl font-bold text-black" style={{ fontFamily: "'Clash Display', sans-serif" }}>
+                  {yieldCalculations.prizePool} USDC
+                </span>
               </div>
             </div>
+            <p className="text-xs text-gray-400 mt-4" style={{ fontFamily: "'Clash Display', sans-serif" }}>
+              Estimated based on ~{AAVE_APY}% APY from Aave V3
+            </p>
           </div>
         </div>
 
@@ -220,15 +267,15 @@ export const CreatePoolPageContent = () => {
             <span className="text-gray-500 text-sm font-light">Confirm creation of pool?</span>
             <button
               onClick={handleSubmit}
-              disabled={!isFormValid}
+              disabled={!isFormValid || isPending}
               className={`text-3xl font-bold px-16 py-4 rounded-xl border-2 border-black transition-all uppercase tracking-wide ${
-                isFormValid
+                isFormValid && !isPending
                   ? "bg-[#4ade80] hover:bg-[#22c55e] text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
                   : "bg-gray-200 text-gray-400 cursor-not-allowed"
               }`}
               style={{ fontFamily: "'Clash Display', sans-serif" }}
             >
-              YES
+              {isPending ? "Creating..." : "YES"}
             </button>
           </div>
         </div>
