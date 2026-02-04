@@ -204,12 +204,9 @@ export const usePoolMetrics = (poolId: number) => {
 export const useCreatePool = () => {
   const { address, chain } = useAccount();
   const publicClient = usePublicClient();
-  const { writeContractAsync, isPending } = useScaffoldWriteContract({
-    contractName: "MarketController",
-  });
 
-  // For USDC approval
-  const { writeContractAsync: approveUsdc, isPending: isApproving } = useWriteContract();
+  // Use writeContract for full control over both transactions
+  const { writeContractAsync, isPending } = useWriteContract();
 
   const createPool = useCallback(
     async (question: string, durationDays: number, initialSeedUsdc: number) => {
@@ -220,34 +217,89 @@ export const useCreatePool = () => {
 
       if (!usdcAddress || !marketAddress) throw new Error("Unsupported chain");
 
+      const contracts = deployedContracts[chain.id as keyof typeof deployedContracts];
+      if (!contracts?.MarketController) throw new Error("Contract not found");
+
       const durationSeconds = BigInt(durationDays * 24 * 60 * 60);
       const seedAmount = parseUnits(initialSeedUsdc.toString(), 6);
 
-      // Step 1: Approve USDC spending and wait for confirmation
-      const approvalTxHash = await approveUsdc({
+      // Check current allowance first
+      const currentAllowance = await publicClient.readContract({
         address: usdcAddress,
         abi: erc20Abi,
-        functionName: "approve",
-        args: [marketAddress, seedAmount],
+        functionName: "allowance",
+        args: [address, marketAddress],
       });
+      console.log("Current allowance:", currentAllowance.toString());
 
-      // Wait for approval transaction to be confirmed
-      await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
+      // Only approve if current allowance is less than needed
+      if (currentAllowance < seedAmount) {
+        // Step 1: Approve USDC spending
+        console.log("Step 1: Approving USDC spending for amount:", seedAmount.toString());
+        const approvalTxHash = await writeContractAsync({
+          address: usdcAddress,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [marketAddress, seedAmount],
+        });
 
-      // Step 2: Create pool
-      const tx = await writeContractAsync({
+        // Wait for approval transaction to be fully confirmed
+        console.log("Waiting for approval confirmation...", approvalTxHash);
+        const approvalReceipt = await publicClient.waitForTransactionReceipt({
+          hash: approvalTxHash,
+          confirmations: 1,
+        });
+        console.log("Approval confirmed:", approvalReceipt.status);
+
+        if (approvalReceipt.status !== "success") {
+          throw new Error("Approval transaction failed");
+        }
+
+        // Verify the allowance was actually set
+        const newAllowance = await publicClient.readContract({
+          address: usdcAddress,
+          abi: erc20Abi,
+          functionName: "allowance",
+          args: [address, marketAddress],
+        });
+        console.log("New allowance after approval:", newAllowance.toString());
+
+        if (newAllowance < seedAmount) {
+          throw new Error("Allowance not set correctly. Please try again.");
+        }
+      } else {
+        console.log("Sufficient allowance already exists, skipping approval");
+      }
+
+      // Step 2: Create pool (only after approval is confirmed)
+      console.log("Step 2: Creating pool...");
+      const createTxHash = await writeContractAsync({
+        address: marketAddress,
+        abi: contracts.MarketController.abi,
         functionName: "createPool",
         args: [question, durationSeconds, seedAmount],
       });
 
-      return tx;
+      // Wait for create pool transaction to be confirmed
+      console.log("Waiting for createPool confirmation...", createTxHash);
+      const createReceipt = await publicClient.waitForTransactionReceipt({
+        hash: createTxHash,
+        confirmations: 1,
+      });
+      console.log("Pool created:", createReceipt.status);
+
+      if (createReceipt.status !== "success") {
+        throw new Error("Create pool transaction failed");
+      }
+
+      return createTxHash;
     },
-    [address, chain, publicClient, writeContractAsync, approveUsdc],
+    [address, chain, publicClient, writeContractAsync],
   );
 
   return {
     createPool,
-    isPending: isPending || isApproving,
+    isPending,
   };
 };
 
@@ -270,23 +322,61 @@ export const usePlaceBet = () => {
 
       if (!usdcAddress || !marketAddress) throw new Error("Unsupported chain");
 
-      const amount = parseUnits(amountUsdc.toString(), 6);
-
-      // Step 1: Approve USDC spending and wait for confirmation
-      const approvalTxHash = await writeContractAsync({
-        address: usdcAddress,
-        abi: erc20Abi,
-        functionName: "approve",
-        args: [marketAddress, amount],
-      });
-
-      // Wait for approval transaction to be confirmed
-      await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
-
-      // Step 2: Place bet (using the MarketController ABI from deployed contracts)
       const contracts = deployedContracts[chain.id as keyof typeof deployedContracts];
       if (!contracts?.MarketController) throw new Error("Contract not found");
 
+      const amount = parseUnits(amountUsdc.toString(), 6);
+
+      // Check current allowance first
+      const currentAllowance = await publicClient.readContract({
+        address: usdcAddress,
+        abi: erc20Abi,
+        functionName: "allowance",
+        args: [address, marketAddress],
+      });
+      console.log("Current allowance:", currentAllowance.toString());
+
+      // Only approve if current allowance is less than needed
+      if (currentAllowance < amount) {
+        // Step 1: Approve USDC spending
+        console.log("Step 1: Approving USDC spending for amount:", amount.toString());
+        const approvalTxHash = await writeContractAsync({
+          address: usdcAddress,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [marketAddress, amount],
+        });
+
+        // Wait for approval transaction to be fully confirmed
+        console.log("Waiting for approval confirmation...", approvalTxHash);
+        const approvalReceipt = await publicClient.waitForTransactionReceipt({
+          hash: approvalTxHash,
+          confirmations: 1,
+        });
+        console.log("Approval confirmed:", approvalReceipt.status);
+
+        if (approvalReceipt.status !== "success") {
+          throw new Error("Approval transaction failed");
+        }
+
+        // Verify the allowance was actually set
+        const newAllowance = await publicClient.readContract({
+          address: usdcAddress,
+          abi: erc20Abi,
+          functionName: "allowance",
+          args: [address, marketAddress],
+        });
+        console.log("New allowance after approval:", newAllowance.toString());
+
+        if (newAllowance < amount) {
+          throw new Error("Allowance not set correctly. Please try again.");
+        }
+      } else {
+        console.log("Sufficient allowance already exists, skipping approval");
+      }
+
+      // Step 2: Place bet (only after approval is confirmed)
+      console.log("Step 2: Placing bet...");
       const betTxHash = await writeContractAsync({
         address: marketAddress,
         abi: contracts.MarketController.abi,
@@ -295,7 +385,16 @@ export const usePlaceBet = () => {
       });
 
       // Wait for bet transaction to be confirmed
-      await publicClient.waitForTransactionReceipt({ hash: betTxHash });
+      console.log("Waiting for placeBet confirmation...", betTxHash);
+      const betReceipt = await publicClient.waitForTransactionReceipt({
+        hash: betTxHash,
+        confirmations: 1,
+      });
+      console.log("Bet placed:", betReceipt.status);
+
+      if (betReceipt.status !== "success") {
+        throw new Error("Place bet transaction failed");
+      }
 
       return betTxHash;
     },
