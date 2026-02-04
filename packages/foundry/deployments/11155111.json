@@ -1,5 +1,5 @@
 {
-  "0xA9b48E5665A94fb81d32105e99f0a12C343f649b": "NoLossVault",
-  "0xc6Bf2E2691b2832a0974Fd5DA570D14b900D76Fd": "MarketController",
+  "0x0824CAe8116a58282E8303AbAa4A5c00aeb02c2D": "MarketController",
+  "0x10De4981138fa3F426D8A4ec621AfC5748fD96F7": "NoLossVault",
   "networkName": "sepolia"
 }

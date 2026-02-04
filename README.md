@@ -1,80 +1,185 @@
-# 🏗 Scaffold-ETH 2
+# ExtraLife: Gamified No-Loss Prediction Markets
 
-<h4 align="center">
-  <a href="https://docs.scaffoldeth.io">Documentation</a> |
-  <a href="https://scaffoldeth.io">Website</a>
-</h4>
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Network: Base Sepolia](https://img.shields.io/badge/Network-Base_Sepolia-blue)
+![Yield: Aave V3](https://img.shields.io/badge/Yield-Aave_V3-purple)
+![Framework: Scaffold--ETH](https://img.shields.io/badge/Framework-Scaffold--ETH-green)
 
-🧪 An open-source, up-to-date toolkit for building decentralized applications (dapps) on the Ethereum blockchain. It's designed to make it easier for developers to create and deploy smart contracts and build user interfaces that interact with those contracts.
+**ExtraLife** is a decentralized, no-loss prediction market protocol built on Aave V3. Unlike traditional betting where users risk their principal, ExtraLife allows users to speculate on real-world events using **only the yield** generated from their deposits.
 
-⚙️ Built using NextJS, RainbowKit, Foundry, Wagmi, Viem, and Typescript.
+If you lose the prediction, you simply get your money back. If you win, you keep your money + a share of the pool's generated interest.
 
-- ✅ **Contract Hot Reload**: Your frontend auto-adapts to your smart contract as you edit it.
-- 🪝 **[Custom hooks](https://docs.scaffoldeth.io/hooks/)**: Collection of React hooks wrapper around [wagmi](https://wagmi.sh/) to simplify interactions with smart contracts with typescript autocompletion.
-- 🧱 [**Components**](https://docs.scaffoldeth.io/components/): Collection of common web3 components to quickly build your frontend.
-- 🔥 **Burner Wallet & Local Faucet**: Quickly test your application with a burner wallet and local faucet.
-- 🔐 **Integration with Wallet Providers**: Connect to different wallet providers and interact with the Ethereum network.
+---
 
-![Debug Contracts tab](https://github.com/scaffold-eth/scaffold-eth-2/assets/55535804/b237af0c-5027-4849-a5c1-2e31495cccb1)
+## System Architecture
 
-## Requirements
+The protocol leverages the **ERC-4626** Tokenized Vault standard to seamlessly route user liquidity into Aave lending pools while tracking prediction states off-chain via the Market Controller.
 
-Before you begin, you need to install the following tools:
+![User System Interaction](<Screenshot 2025-12-08 at 2.03.58 AM.png>)
 
-- [Node (>= v20.18.3)](https://nodejs.org/en/download/)
-- Yarn ([v1](https://classic.yarnpkg.com/en/docs/install/) or [v2+](https://yarnpkg.com/getting-started/install))
-- [Git](https://git-scm.com/downloads)
+> _High-level data flow: User Deposits → Vault → Aave V3 → Yield Accumulation → Market Resolution._
 
-## Quickstart
+---
 
-To get started with Scaffold-ETH 2, follow the steps below:
+## Key Features
 
-1. Install dependencies if it was skipped in CLI:
+- **Principal Protection:** Users never lose their initial deposit. The "cost" of betting is only the opportunity cost of the time the funds are locked.
 
-```
-cd my-dapp-example
+* **Yield-Powered Rewards:** All pooled funds are supplied to the Aave V3 Base Sepolia Pool to generate real-time interest (approx. 3.5% - 5% APY).
+
+- **Fair Distribution:**
+  - **60%** of accrued yield goes to the **Winners**.
+  - **40%** of accrued yield goes to the **Market Creator** (incentivizing high-quality questions).
+- **Security First:** Implements ERC-4626 inflation attack mitigation via initial dead-share minting.
+
+## How It Works
+
+### 1. The Setup (Market Creation)
+
+A "Market Creator" initializes a pool with a specific question (e.g., "Will ETH hit $3k by Friday?") and a resolution deadline. They deposit a significant seed amount to bootstrap the pool and attract participants.
+
+### 2. The Participation (Betting)
+
+Users deposit USDC into the `NoLossVault`. They vote "Yes" or "No".
+
+- _Under the hood:_ The Vault mints `nlUSDC` (NoLoss USDC) shares to the user and immediately supplies the USDC to Aave.
+
+### 3. The Yield (Waiting Game)
+
+While the event is active, the massive pool of combined capital sits in Aave, accruing interest block by block.
+
+### 4. Resolution & Claim
+
+Once the deadline passes, the Creator resolves the market.
+
+- **Losers:** Withdraw their exact principal (1:1).
+- **Winners:** Withdraw their principal + their share of the 60% Yield Pot.
+- **Creator:** Withdraws their principal + the 40% Creator Fee.
+
+## Incentive Model
+
+![roles and incentive model](<Screenshot 2025-12-08 at 2.14.12 AM.png>)
+
+### Game Theory: Why Each Role is Incentivized
+
+**For Creators:**
+
+- Creators receive 40% of the **total pool's yield**, not just their own deposit
+- To profit, creators must attract participants — the larger the pool grows, the more yield is generated
+- A creator depositing 100k needs the pool to reach ~$250K for their 40% share to exceed what they'd earn from Aave alone
+- This incentivizes creators to craft compelling, high-quality prediction questions that attract bettors
+
+**For Users (Bettors):**
+
+- Users risk nothing — they always get their principal back regardless of outcome
+- Early participation is rewarded: yield share is weighted by both deposit amount AND time in the pool
+- This prevents last-minute "whale attacks" where someone deposits a huge amount right before resolution
+- Winners split 60% of the total yield proportional to their time-weighted stake
+
+**For the Protocol:**
+
+- The mechanism creates a self-sustaining ecosystem where quality content (good predictions) is rewarded
+- Creators are incentivized to promote their pools and grow participation
+- Users are incentivized to join early and engage with interesting predictions
+
+## Technical Stack
+
+- **Smart Contracts:** Solidity v0.8.20 (Foundry)
+- **Frontend:** Next.js 15, TypeScript, Tailwind CSS, DaisyUI
+- **Blockchain Interaction:** wagmi, viem, RainbowKit
+- **DeFi Integration:** Aave V3 `IPool` and `IAToken` interfaces
+
+* **Network:** Base Sepolia (Testnet)
+
+## Smart Contracts
+
+| Contract             | Address (Base Sepolia)                       | Description                                                                   |
+| -------------------- | -------------------------------------------- | ----------------------------------------------------------------------------- |
+| **NoLossVault**      | `0xF8B51F4B5093A21192A3c3EB11FdD0E816046Be2` | ERC-4626 compliant vault. Handles deposits/withdrawals and Aave interfacing.  |
+| **MarketController** | `0xE5a5148fea475D65e0542e6c111073e06FFB14d5` | The "Brain". Manages prediction states, voting logic, and yield distribution. |
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js >= v20.18.3
+- Yarn
+- Git
+- Foundry (for contract work)
+
+### Installation
+
+```bash
+git clone https://github.com/ruhneb2004/extraLife.git
+cd extraLife
 yarn install
 ```
 
-2. Run a local network in the first terminal:
+### Quick Start (Local)
 
-```
+1. Start the local chain:
+
+```bash
 yarn chain
 ```
 
-This command starts a local Ethereum network using Foundry. The network runs on your local machine and can be used for testing and development. You can customize the network configuration in `packages/foundry/foundry.toml`.
+2. Deploy contracts:
 
-3. On a second terminal, deploy the test contract:
+> Note: This deploys to the local anvil chain with mocked Aave pools.
 
-```
+```bash
 yarn deploy
 ```
 
-This command deploys a test smart contract to the local network. The contract is located in `packages/foundry/contracts` and can be modified to suit your needs. The `yarn deploy` command uses the deploy script located in `packages/foundry/script` to deploy the contract to the network. You can also customize the deploy script.
+3. Launch the App:
 
-4. On a third terminal, start your NextJS app:
-
-```
+```bash
 yarn start
 ```
 
-Visit your app on: `http://localhost:3000`. You can interact with your smart contract using the `Debug Contracts` page. You can tweak the app config in `packages/nextjs/scaffold.config.ts`.
+Visit `http://localhost:3000` to interact with the UI.
 
-Run smart contract test with `yarn foundry:test`
+### Deployment to Base Sepolia
 
-- Edit your smart contracts in `packages/foundry/contracts`
-- Edit your frontend homepage at `packages/nextjs/app/page.tsx`. For guidance on [routing](https://nextjs.org/docs/app/building-your-application/routing/defining-routes) and configuring [pages/layouts](https://nextjs.org/docs/app/building-your-application/routing/pages-and-layouts) checkout the Next.js documentation.
-- Edit your deployment scripts in `packages/foundry/script`
+To deploy to a public testnet:
 
+1. Setup your `.env` in `packages/foundry` with your `DEPLOYER_PRIVATE_KEY` and `BASESCAN_API_KEY`.
 
-## Documentation
+2. Run the deploy command:
 
-Visit our [docs](https://docs.scaffoldeth.io) to learn how to start building with Scaffold-ETH 2.
+```bash
+yarn deploy --network baseSepolia
+```
 
-To know more about its features, check out our [website](https://scaffoldeth.io).
+3. Verify the contracts:
 
-## Contributing to Scaffold-ETH 2
+```bash
+# (Inside packages/foundry)
+forge script script/Deploy.s.sol --rpc-url baseSepolia --verify --resume
+```
 
-We welcome contributions to Scaffold-ETH 2!
+## Security Considerations
 
-Please see [CONTRIBUTING.MD](https://github.com/scaffold-eth/scaffold-eth-2/blob/main/CONTRIBUTING.md) for more information and guidelines for contributing to Scaffold-ETH 2.
+- **Inflation Attack:** The deployment script automatically mints "dead shares" to the deployer/burn address upon initialization to prevent the classic ERC-4626 inflation/donation attack.
+
+- **Owner Privileges:** The MarketController currently allows the owner to resolve disputes (centralized for MVP). Future versions will implement an optimistic oracle (like UMA) for decentralized resolution.
+
+## Roadmap
+
+- [x] MVP: USDC Vault + Yes/No Markets
+- [x] Aave V3 Integration on Base Sepolia
+- [ ] Multi-choice predictions
+- [ ] Integration with UMA Oracle for resolution
+- [ ] Mainnet Launch on Base
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+
+Built with ❤️ using [Scaffold-ETH 2](https://scaffoldeth.io)
