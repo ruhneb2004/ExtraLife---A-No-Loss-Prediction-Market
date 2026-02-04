@@ -6,21 +6,31 @@ import { erc20Abi, formatUnits, parseUnits } from "viem";
 import { useAccount, useChainId, usePublicClient, useReadContract, useWriteContract } from "wagmi";
 import deployedContracts from "~~/contracts/deployedContracts";
 
-// Get LINK token address from the deployed MarketController contract
-const getLinkAddress = (chainId: number): `0x${string}` | undefined => {
+// Get token address from the deployed MarketController contract
+const getTokenAddress = (chainId: number): `0x${string}` | undefined => {
   const contracts = deployedContracts[chainId as keyof typeof deployedContracts];
   if (!contracts?.MarketController) return undefined;
-  // We'll read it from the contract, but for now use hardcoded fallbacks
-  const LINK_FALLBACK: Record<number, `0x${string}`> = {
+
+  // Based on the deploy script, we can determine the token
+  const TOKEN_FALLBACK: Record<number, `0x${string}`> = {
     11155111: "0xf8Fb3713D459D7C1018BD0A49D19b4C44290EBE5", // Sepolia LINK
+    84532: "0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f", // Base Sepolia USDC
   };
-  return LINK_FALLBACK[chainId];
+  return TOKEN_FALLBACK[chainId];
 };
 
 // Get MarketController address from deployedContracts (auto-updated on deploy)
 const getMarketControllerAddress = (chainId: number): `0x${string}` | undefined => {
   const contracts = deployedContracts[chainId as keyof typeof deployedContracts];
   return contracts?.MarketController?.address as `0x${string}` | undefined;
+};
+
+const getTokenDecimals = (chainId: number): number => {
+  return chainId === 84532 ? 6 : 18; // USDC on Base Sepolia is 6, LINK is 18
+};
+
+const formatToken = (value: bigint, chainId: number) => {
+  return formatUnits(value, getTokenDecimals(chainId));
 };
 
 export type PoolData = {
@@ -33,6 +43,9 @@ export type PoolData = {
   creatorPrincipal: bigint;
   resolved: boolean;
   outcome: boolean;
+  requestSubmitted: boolean;
+  requestTime: bigint;
+  ancillaryData: string; // bytes in contract
   yesPrincipal: bigint;
   noPrincipal: bigint;
   totalYesWeight: bigint;
@@ -40,6 +53,8 @@ export type PoolData = {
   finalTotalYield: bigint;
   // Computed fields
   isLive: boolean;
+  isResolutionPending: boolean;
+  canSettle: boolean;
   timeLeftSeconds: number;
   totalPrincipalFormatted: string;
   yesPrincipalFormatted: string;
@@ -83,41 +98,49 @@ export const usePoolCount = () => {
 /**
  * Hook to get a single pool's data
  */
-export const usePool = (poolId: number) => {
+export const usePool = (poolId: number | null) => {
+  const chainId = useChainId();
   const { data, isLoading, refetch, isFetched } = useScaffoldReadContract({
     contractName: "MarketController",
     functionName: "pools",
-    args: [BigInt(poolId)],
+    args: [poolId === null ? undefined : BigInt(poolId)],
   });
 
-  const pool: PoolData | null = data
-    ? {
-        id: poolId,
-        creator: data[0],
-        question: data[1],
-        endTime: data[2],
-        totalShares: data[3],
-        totalPrincipal: data[4],
-        creatorPrincipal: data[5],
-        resolved: data[6],
-        outcome: data[7],
-        yesPrincipal: data[8],
-        noPrincipal: data[9],
-        totalYesWeight: data[10],
-        totalNoWeight: data[11],
-        finalTotalYield: data[12],
-        // Computed
-        isLive: !data[6] && BigInt(Math.floor(Date.now() / 1000)) < data[2],
-        timeLeftSeconds: Math.max(0, Number(data[2]) - Math.floor(Date.now() / 1000)),
-        totalPrincipalFormatted: formatUnits(data[4], 18),
-        yesPrincipalFormatted: formatUnits(data[8], 18),
-        noPrincipalFormatted: formatUnits(data[9], 18),
-      }
-    : null;
+  const pool: PoolData | null =
+    data && poolId !== null
+      ? {
+          id: poolId,
+          creator: data[0],
+          question: data[1],
+          endTime: data[2],
+          totalShares: data[3],
+          totalPrincipal: data[4],
+          creatorPrincipal: data[5],
+          resolved: data[6],
+          outcome: data[7],
+          requestSubmitted: data[8],
+          requestTime: data[9],
+          ancillaryData: data[10],
+          yesPrincipal: data[11],
+          noPrincipal: data[12],
+          totalYesWeight: data[13],
+          totalNoWeight: data[14],
+          finalTotalYield: data[15],
+          // Computed
+          isLive: !data[6] && BigInt(Math.floor(Date.now() / 1000)) < data[2],
+          isResolutionPending: data[8] && !data[6],
+          // UMA Liveness is 30s in the test contract
+          canSettle: data[8] && !data[6] && BigInt(Math.floor(Date.now() / 1000)) > data[9] + BigInt(30),
+          timeLeftSeconds: Math.max(0, Number(data[2]) - Math.floor(Date.now() / 1000)),
+          totalPrincipalFormatted: formatToken(data[4], chainId),
+          yesPrincipalFormatted: formatToken(data[11], chainId),
+          noPrincipalFormatted: formatToken(data[12], chainId),
+        }
+      : null;
 
   return {
     pool,
-    isLoading: isLoading || !isFetched,
+    isLoading: (isLoading || !isFetched) && poolId !== null,
     refetch,
   };
 };
@@ -127,9 +150,6 @@ export const usePool = (poolId: number) => {
  */
 export const useAllPools = () => {
   const { poolCount, isLoading: countLoading } = usePoolCount();
-
-  // We need to fetch each pool individually
-  // This is a simplified approach - in production you'd use multicall
   const poolIds = Array.from({ length: poolCount }, (_, i) => i + 1);
 
   return {
@@ -142,13 +162,14 @@ export const useAllPools = () => {
 /**
  * Hook to get user's bet on a pool
  */
-export const useUserBet = (poolId: number) => {
+export const useUserBet = (poolId: number | null) => {
   const { address } = useAccount();
+  const chainId = useChainId();
 
   const { data, isLoading, refetch } = useScaffoldReadContract({
     contractName: "MarketController",
     functionName: "bets",
-    args: [BigInt(poolId), address],
+    args: [poolId === null ? undefined : BigInt(poolId), address],
   });
 
   const userBet: UserBetData | null = data
@@ -157,7 +178,7 @@ export const useUserBet = (poolId: number) => {
         weight: data[1],
         side: data[2],
         claimed: data[3],
-        principalFormatted: formatUnits(data[0], 18),
+        principalFormatted: formatToken(data[0], chainId),
         hasBet: data[0] > BigInt(0),
       }
     : null;
@@ -172,11 +193,12 @@ export const useUserBet = (poolId: number) => {
 /**
  * Hook to get pool metrics (yield info)
  */
-export const usePoolMetrics = (poolId: number) => {
+export const usePoolMetrics = (poolId: number | null) => {
+  const chainId = useChainId();
   const { data, isLoading, refetch } = useScaffoldReadContract({
     contractName: "MarketController",
     functionName: "getPoolMetrics",
-    args: [BigInt(poolId)],
+    args: [poolId === null ? undefined : BigInt(poolId)],
   });
 
   const metrics: PoolMetrics | null = data
@@ -184,9 +206,9 @@ export const usePoolMetrics = (poolId: number) => {
         currentTotalYield: data[0],
         estimatedWinnerPrize: data[1],
         estimatedCreatorFee: data[2],
-        currentTotalYieldFormatted: formatUnits(data[0], 18),
-        estimatedWinnerPrizeFormatted: formatUnits(data[1], 18),
-        estimatedCreatorFeeFormatted: formatUnits(data[2], 18),
+        currentTotalYieldFormatted: formatToken(data[0], chainId),
+        estimatedWinnerPrizeFormatted: formatToken(data[1], chainId),
+        estimatedCreatorFeeFormatted: formatToken(data[2], chainId),
       }
     : null;
 
@@ -203,93 +225,46 @@ export const usePoolMetrics = (poolId: number) => {
 export const useCreatePool = () => {
   const { address, chain } = useAccount();
   const publicClient = usePublicClient();
-
-  // Use writeContract for full control over both transactions
   const { writeContractAsync, isPending } = useWriteContract();
 
   const createPool = useCallback(
-    async (question: string, durationSeconds: number, initialSeedLink: number) => {
+    async (question: string, durationSeconds: number, initialSeed: number) => {
       if (!address || !chain || !publicClient) throw new Error("Wallet not connected");
 
-      const linkAddress = getLinkAddress(chain.id);
+      const tokenAddress = getTokenAddress(chain.id);
       const marketAddress = getMarketControllerAddress(chain.id);
-
-      if (!linkAddress || !marketAddress) throw new Error("Unsupported chain");
+      if (!tokenAddress || !marketAddress) throw new Error("Unsupported chain");
 
       const contracts = deployedContracts[chain.id as keyof typeof deployedContracts];
       if (!contracts?.MarketController) throw new Error("Contract not found");
 
       const duration = BigInt(durationSeconds);
-      const seedAmount = parseUnits(initialSeedLink.toString(), 18);
+      const seedAmount = parseUnits(initialSeed.toString(), getTokenDecimals(chain.id));
 
-      // Check current allowance first
       const currentAllowance = await publicClient.readContract({
-        address: linkAddress,
+        address: tokenAddress,
         abi: erc20Abi,
         functionName: "allowance",
         args: [address, marketAddress],
       });
-      console.log("Current allowance:", currentAllowance.toString());
 
-      // Only approve if current allowance is less than needed
       if (currentAllowance < seedAmount) {
-        // Step 1: Approve LINK spending
-        console.log("Step 1: Approving LINK spending for amount:", seedAmount.toString());
         const approvalTxHash = await writeContractAsync({
-          address: linkAddress,
+          address: tokenAddress,
           abi: erc20Abi,
           functionName: "approve",
           args: [marketAddress, seedAmount],
         });
-
-        // Wait for approval transaction to be fully confirmed
-        console.log("Waiting for approval confirmation...", approvalTxHash);
-        const approvalReceipt = await publicClient.waitForTransactionReceipt({
-          hash: approvalTxHash,
-          confirmations: 1,
-        });
-        console.log("Approval confirmed:", approvalReceipt.status);
-
-        if (approvalReceipt.status !== "success") {
-          throw new Error("Approval transaction failed");
-        }
-
-        // Verify the allowance was actually set
-        const newAllowance = await publicClient.readContract({
-          address: linkAddress,
-          abi: erc20Abi,
-          functionName: "allowance",
-          args: [address, marketAddress],
-        });
-        console.log("New allowance after approval:", newAllowance.toString());
-
-        if (newAllowance < seedAmount) {
-          throw new Error("Allowance not set correctly. Please try again.");
-        }
-      } else {
-        console.log("Sufficient allowance already exists, skipping approval");
+        await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
       }
 
-      // Step 2: Create pool (only after approval is confirmed)
-      console.log("Step 2: Creating pool...");
       const createTxHash = await writeContractAsync({
         address: marketAddress,
         abi: contracts.MarketController.abi,
         functionName: "createPool",
         args: [question, duration, seedAmount],
       });
-
-      // Wait for create pool transaction to be confirmed
-      console.log("Waiting for createPool confirmation...", createTxHash);
-      const createReceipt = await publicClient.waitForTransactionReceipt({
-        hash: createTxHash,
-        confirmations: 1,
-      });
-      console.log("Pool created:", createReceipt.status);
-
-      if (createReceipt.status !== "success") {
-        throw new Error("Create pool transaction failed");
-      }
+      await publicClient.waitForTransactionReceipt({ hash: createTxHash });
 
       return createTxHash;
     },
@@ -308,92 +283,45 @@ export const useCreatePool = () => {
 export const usePlaceBet = () => {
   const { address, chain } = useAccount();
   const publicClient = usePublicClient();
-
-  // Use writeContract for both approval and bet (more control)
   const { writeContractAsync, isPending } = useWriteContract();
 
   const placeBet = useCallback(
-    async (poolId: number, side: boolean, amountLink: number) => {
+    async (poolId: number, side: boolean, amount: number) => {
       if (!address || !chain || !publicClient) throw new Error("Wallet not connected");
 
-      const linkAddress = getLinkAddress(chain.id);
+      const tokenAddress = getTokenAddress(chain.id);
       const marketAddress = getMarketControllerAddress(chain.id);
-
-      if (!linkAddress || !marketAddress) throw new Error("Unsupported chain");
+      if (!tokenAddress || !marketAddress) throw new Error("Unsupported chain");
 
       const contracts = deployedContracts[chain.id as keyof typeof deployedContracts];
       if (!contracts?.MarketController) throw new Error("Contract not found");
 
-      const amount = parseUnits(amountLink.toString(), 18);
+      const betAmount = parseUnits(amount.toString(), getTokenDecimals(chain.id));
 
-      // Check current allowance first
       const currentAllowance = await publicClient.readContract({
-        address: linkAddress,
+        address: tokenAddress,
         abi: erc20Abi,
         functionName: "allowance",
         args: [address, marketAddress],
       });
-      console.log("Current allowance:", currentAllowance.toString());
 
-      // Only approve if current allowance is less than needed
-      if (currentAllowance < amount) {
-        // Step 1: Approve LINK spending
-        console.log("Step 1: Approving LINK spending for amount:", amount.toString());
+      if (currentAllowance < betAmount) {
         const approvalTxHash = await writeContractAsync({
-          address: linkAddress,
+          address: tokenAddress,
           abi: erc20Abi,
           functionName: "approve",
-          args: [marketAddress, amount],
+          args: [marketAddress, betAmount],
         });
-
-        // Wait for approval transaction to be fully confirmed
-        console.log("Waiting for approval confirmation...", approvalTxHash);
-        const approvalReceipt = await publicClient.waitForTransactionReceipt({
-          hash: approvalTxHash,
-          confirmations: 1,
-        });
-        console.log("Approval confirmed:", approvalReceipt.status);
-
-        if (approvalReceipt.status !== "success") {
-          throw new Error("Approval transaction failed");
-        }
-
-        // Verify the allowance was actually set
-        const newAllowance = await publicClient.readContract({
-          address: linkAddress,
-          abi: erc20Abi,
-          functionName: "allowance",
-          args: [address, marketAddress],
-        });
-        console.log("New allowance after approval:", newAllowance.toString());
-
-        if (newAllowance < amount) {
-          throw new Error("Allowance not set correctly. Please try again.");
-        }
-      } else {
-        console.log("Sufficient allowance already exists, skipping approval");
+        await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
       }
 
-      // Step 2: Place bet (only after approval is confirmed)
-      console.log("Step 2: Placing bet...");
       const betTxHash = await writeContractAsync({
         address: marketAddress,
         abi: contracts.MarketController.abi,
         functionName: "placeBet",
-        args: [BigInt(poolId), side, amount],
+        args: [BigInt(poolId), side, betAmount],
       });
-
-      // Wait for bet transaction to be confirmed
-      console.log("Waiting for placeBet confirmation...", betTxHash);
-      const betReceipt = await publicClient.waitForTransactionReceipt({
-        hash: betTxHash,
-        confirmations: 1,
-      });
-      console.log("Bet placed:", betReceipt.status);
-
-      if (betReceipt.status !== "success") {
-        throw new Error("Place bet transaction failed");
-      }
+      await publicClient.waitForTransactionReceipt({ hash: betTxHash });
 
       return betTxHash;
     },
@@ -410,23 +338,9 @@ export const usePlaceBet = () => {
  * Hook to claim winnings
  */
 export const useClaim = () => {
-  const { writeContractAsync, isPending } = useScaffoldWriteContract({
-    contractName: "MarketController",
-  });
-
-  const claim = useCallback(
-    async (poolId: number) => {
-      const tx = await writeContractAsync({
-        functionName: "claim",
-        args: [BigInt(poolId)],
-      });
-      return tx;
-    },
-    [writeContractAsync],
-  );
-
+  const { writeContractAsync, isPending } = useScaffoldWriteContract("MarketController");
   return {
-    claim,
+    claim: (poolId: number) => writeContractAsync({ functionName: "claim", args: [BigInt(poolId)] }),
     isPending,
   };
 };
@@ -435,169 +349,73 @@ export const useClaim = () => {
  * Hook to claim creator rewards
  */
 export const useClaimCreatorRewards = () => {
-  const { writeContractAsync, isPending } = useScaffoldWriteContract({
-    contractName: "MarketController",
-  });
-
-  const claimCreatorRewards = useCallback(
-    async (poolId: number) => {
-      const tx = await writeContractAsync({
-        functionName: "claimCreatorRewards",
-        args: [BigInt(poolId)],
-      });
-      return tx;
-    },
-    [writeContractAsync],
-  );
-
+  const { writeContractAsync, isPending } = useScaffoldWriteContract("MarketController");
   return {
-    claimCreatorRewards,
+    claimCreatorRewards: (poolId: number) =>
+      writeContractAsync({ functionName: "claimCreatorRewards", args: [BigInt(poolId)] }),
     isPending,
   };
 };
 
 /**
- * Hook to get LINK balance
+ * Hook to request resolution from UMA Oracle
+ */
+export const useRequestResolution = () => {
+  const { writeContractAsync, isPending } = useScaffoldWriteContract("MarketController");
+  return {
+    requestResolution: (poolId: number) =>
+      writeContractAsync({ functionName: "requestResolution", args: [BigInt(poolId)] }),
+    isPending,
+  };
+};
+
+/**
+ * Hook to settle resolution from UMA Oracle
+ */
+export const useSettleResolution = () => {
+  const { writeContractAsync, isPending } = useScaffoldWriteContract("MarketController");
+  return {
+    settleResolution: (poolId: number) =>
+      writeContractAsync({ functionName: "settleResolution", args: [BigInt(poolId)] }),
+    isPending,
+  };
+};
+
+/**
+ * Hook to get token balance
  */
 export const useLinkBalance = () => {
   const { address } = useAccount();
   const chainId = useChainId();
-  const linkAddress = chainId ? getLinkAddress(chainId) : undefined;
+  const tokenAddress = chainId ? getTokenAddress(chainId) : undefined;
 
   const { data, isLoading, refetch } = useReadContract({
-    address: linkAddress,
+    address: tokenAddress,
     abi: erc20Abi,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: {
-      enabled: !!address && !!linkAddress,
-    },
+    query: { enabled: !!address && !!tokenAddress },
   });
 
   return {
     balance: data,
-    balanceFormatted: data ? formatUnits(data, 18) : "0",
+    balanceFormatted: data ? formatToken(data, chainId) : "0",
     isLoading,
     refetch,
     chainId,
-    linkAddress,
+    tokenAddress,
   };
 };
 
 /**
- * Hook to get contract owner address
- */
-export const useContractOwner = () => {
-  const { data, isLoading } = useScaffoldReadContract({
-    contractName: "MarketController",
-    functionName: "owner",
-  });
-
-  return {
-    owner: data as `0x${string}` | undefined,
-    isLoading,
-  };
-};
-
-/**
- * Hook to resolve a pool (owner only)
- */
-export const useResolvePool = () => {
-  const { writeContractAsync, isPending } = useScaffoldWriteContract({
-    contractName: "MarketController",
-  });
-
-  const resolvePool = useCallback(
-    async (poolId: number, outcome: boolean) => {
-      const tx = await writeContractAsync({
-        functionName: "resolvePool",
-        args: [BigInt(poolId), outcome],
-      });
-      return tx;
-    },
-    [writeContractAsync],
-  );
-
-  return {
-    resolvePool,
-    isPending,
-  };
-};
-
-// Aave V3 Pool ABI (minimal for getReserveData)
-const AAVE_POOL_ABI = [
-  {
-    inputs: [{ internalType: "address", name: "asset", type: "address" }],
-    name: "getReserveData",
-    outputs: [
-      {
-        components: [
-          { internalType: "uint256", name: "configuration", type: "uint256" },
-          { internalType: "uint128", name: "liquidityIndex", type: "uint128" },
-          { internalType: "uint128", name: "currentLiquidityRate", type: "uint128" },
-          { internalType: "uint128", name: "variableBorrowIndex", type: "uint128" },
-          { internalType: "uint128", name: "currentVariableBorrowRate", type: "uint128" },
-          { internalType: "uint128", name: "currentStableBorrowRate", type: "uint128" },
-          { internalType: "uint40", name: "lastUpdateTimestamp", type: "uint40" },
-          { internalType: "uint16", name: "id", type: "uint16" },
-          { internalType: "address", name: "aTokenAddress", type: "address" },
-          { internalType: "address", name: "stableDebtTokenAddress", type: "address" },
-          { internalType: "address", name: "variableDebtTokenAddress", type: "address" },
-          { internalType: "address", name: "interestRateStrategyAddress", type: "address" },
-          { internalType: "uint128", name: "accruedToTreasury", type: "uint128" },
-          { internalType: "uint128", name: "unbacked", type: "uint128" },
-          { internalType: "uint128", name: "isolationModeTotalDebt", type: "uint128" },
-        ],
-        internalType: "struct DataTypes.ReserveData",
-        name: "",
-        type: "tuple",
-      },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const;
-
-// Aave Pool addresses by chain
-const AAVE_POOL_ADDRESS: Record<number, `0x${string}`> = {
-  11155111: "0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951", // Sepolia
-};
-
-// RAY = 10^27 (Aave uses 27 decimals for rates)
-const RAY = BigInt(10 ** 27);
-
-/**
- * Hook to fetch current Aave APY for LINK token
+ * Hook to get Aave APY (dummy)
+ * @returns 3.5% APY
  */
 export const useAaveApy = () => {
-  const chainId = useChainId();
-  const linkAddress = chainId ? getLinkAddress(chainId) : undefined;
-  const poolAddress = chainId ? AAVE_POOL_ADDRESS[chainId] : undefined;
-
-  const { data, isLoading, refetch } = useReadContract({
-    address: poolAddress,
-    abi: AAVE_POOL_ABI,
-    functionName: "getReserveData",
-    args: linkAddress ? [linkAddress] : undefined,
-    query: {
-      enabled: !!linkAddress && !!poolAddress,
-      refetchInterval: 60000, // Refetch every minute
-    },
-  });
-
-  // Convert liquidityRate (in RAY, 27 decimals) to APY percentage
-  // Aave's liquidityRate is the interest rate per second, scaled by RAY
-  // APY = ((1 + rate/SECONDS_PER_YEAR)^SECONDS_PER_YEAR - 1) * 100
-  const SECONDS_PER_YEAR = 31536000; // 365 days
-  const apy = data?.currentLiquidityRate
-    ? (Math.pow(1 + Number(data.currentLiquidityRate) / Number(RAY) / SECONDS_PER_YEAR, SECONDS_PER_YEAR) - 1) * 100
-    : null;
-
   return {
-    apy, // APY as percentage (e.g., 3.5 for 3.5%)
-    apyFormatted: apy !== null ? apy.toFixed(2) : "—",
-    isLoading,
-    refetch,
+    apy: 3.5,
+    apyFormatted: "3.50",
+    isLoading: false,
   };
 };
 
