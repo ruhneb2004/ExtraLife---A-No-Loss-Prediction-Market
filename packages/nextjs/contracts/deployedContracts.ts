@@ -414,7 +414,7 @@ const deployedContracts = {
   },
   11155111: {
     MarketController: {
-      address: "0x0824cae8116a58282e8303abaa4a5c00aeb02c2d",
+      address: "0x2f26b861decd76c50d7fe47421faa2a1eafe3110",
       abi: [
         {
           type: "constructor",
@@ -816,7 +816,7 @@ const deployedContracts = {
         },
       ],
       inheritedFunctions: {},
-      deployedOnBlock: 9787329,
+      deployedOnBlock: 9823909,
     },
   },
 } as const;

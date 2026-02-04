@@ -12,23 +12,30 @@ export type CardItem = {
   statusDot: string;
 };
 
+interface CardProps {
+  item: CardItem;
+  clickable?: boolean;
+}
+
 /**
  * CARD COMPONENT
  * Matches the deep shadow look without the border.
  * Uses Clash Display font.
- * Clickable - navigates to pool detail page.
+ * Optionally clickable - navigates to pool detail page when clickable is true.
  */
-export const Card = ({ item }: { item: CardItem }) => {
+export const Card = ({ item, clickable = true }: CardProps) => {
   const router = useRouter();
 
   const handleClick = () => {
-    router.push(`/pool/${item.id}`);
+    if (clickable) {
+      router.push(`/pool/${item.id}`);
+    }
   };
 
   return (
     <div
       onClick={handleClick}
-      className="
+      className={`
       group
       relative 
       flex-shrink-0 
@@ -39,10 +46,9 @@ export const Card = ({ item }: { item: CardItem }) => {
       flex flex-col justify-between
       shadow-[16px_16px_0px_0px_rgba(0,0,0,1)]
       mr-16
-      cursor-pointer
+      ${clickable ? "cursor-pointer hover:scale-[1.02]" : "cursor-default"}
       transition-transform duration-300
-      hover:scale-[1.02]
-    "
+    `}
       style={{ fontFamily: "'Clash Display', sans-serif" }}
     >
       <div>

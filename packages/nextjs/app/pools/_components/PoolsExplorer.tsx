@@ -32,6 +32,7 @@ export const PoolsExplorer = () => {
   // Generate pool IDs (1 to poolCount)
   const poolIds = Array.from({ length: poolCount }, (_, i) => i + 1);
 
+  // Show loader while data is being fetched
   if (countLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -152,8 +153,8 @@ const PoolCardWithFilter = ({
 
         <h3 className="text-2xl font-medium leading-tight tracking-tight text-black mb-3">{pool.question}</h3>
         <p className="text-gray-500 text-base leading-relaxed font-normal">
-          Yes: {parseFloat(pool.yesPrincipalFormatted).toFixed(2)} USDC | No:{" "}
-          {parseFloat(pool.noPrincipalFormatted).toFixed(2)} USDC
+          Yes: {parseFloat(pool.yesPrincipalFormatted).toFixed(2)} LINK | No:{" "}
+          {parseFloat(pool.noPrincipalFormatted).toFixed(2)} LINK
         </p>
       </div>
 
@@ -163,7 +164,7 @@ const PoolCardWithFilter = ({
           <div>
             <span className="text-gray-400">Pool Size</span>
             <p className="text-black font-semibold text-lg">
-              {parseFloat(pool.totalPrincipalFormatted).toFixed(2)} USDC
+              {parseFloat(pool.totalPrincipalFormatted).toFixed(2)} LINK
             </p>
           </div>
           <div>
