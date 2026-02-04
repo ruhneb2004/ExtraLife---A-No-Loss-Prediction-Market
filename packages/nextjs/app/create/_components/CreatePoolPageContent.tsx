@@ -1,18 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAccount } from "wagmi";
-import { ConnectWalletButton } from "~~/app/_components/ConnectWalletButton";
-import { Sidebar } from "~~/app/_components/Sidebar";
-import { TopNav } from "~~/app/_components/TopNav";
-import { useCreatePool, useUsdcBalance } from "~~/hooks/useMarketController";
+import { ConnectWalletButton, PageLoader, Sidebar, TopNav } from "~~/app/_components";
+import { useAaveApy, useCreatePool, useLinkBalance } from "~~/hooks/useMarketController";
 import { notification } from "~~/utils/scaffold-eth";
 
 // Constants for yield calculation
-const AAVE_APY = 3.5; // 3.5% APY from Aave
 const CREATOR_SHARE = 40; // 40% goes to pool creator
 const PRIZE_POOL_SHARE = 60; // 60% goes to prize pool
+const FALLBACK_APY = 3.5; // Fallback if Aave APY fetch fails
 
 // Ensure the correct font is loaded for this page to match the design
 const FontStyles = () => (
@@ -25,16 +23,53 @@ const FontStyles = () => (
   `}</style>
 );
 
+// Helper to format date for datetime-local input
+const formatDateTimeLocal = (date: Date): string => {
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+// Helper to get minimum datetime (now)
+const getMinDateTime = (): string => {
+  return formatDateTimeLocal(new Date());
+};
+
+// Helper to get default datetime (1 hour from now)
+const getDefaultDateTime = (): string => {
+  const date = new Date();
+  date.setHours(date.getHours() + 1);
+  return formatDateTimeLocal(date);
+};
+
 export const CreatePoolPageContent = () => {
-  const { isConnected } = useAccount();
+  const { isConnected, isReconnecting, status } = useAccount();
+  const [checkComplete, setCheckComplete] = useState(false);
   const router = useRouter();
   const [betQuestion, setBetQuestion] = useState("");
   const [stakeAmount, setStakeAmount] = useState("");
-  const [bettingPeriod, setBettingPeriod] = useState("");
+  const [endDateTime, setEndDateTime] = useState(getDefaultDateTime());
+
+  // Wait for wagmi to fully initialize
+  useEffect(() => {
+    if (isReconnecting || status === "connecting") {
+      return;
+    }
+
+    if (status === "connected" || status === "disconnected") {
+      const timer = setTimeout(() => {
+        setCheckComplete(true);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isReconnecting, status]);
 
   // Contract hooks
   const { createPool, isPending } = useCreatePool();
-  const { balanceFormatted } = useUsdcBalance();
+  const { balanceFormatted } = useLinkBalance();
+  const { apy: fetchedApy, apyFormatted, isLoading: apyLoading } = useAaveApy();
+
+  // Use fetched APY or fallback
+  const currentApy = fetchedApy ?? FALLBACK_APY;
 
   // Validate and set stake amount (only positive numbers)
   const handleStakeChange = (value: string) => {
@@ -43,19 +78,22 @@ export const CreatePoolPageContent = () => {
     }
   };
 
-  // Validate and set betting period (only positive integers)
-  const handleBettingPeriodChange = (value: string) => {
-    if (value === "" || /^\d+$/.test(value)) {
-      setBettingPeriod(value);
-    }
-  };
+  // Calculate duration in seconds from end datetime
+  const durationSeconds = useMemo(() => {
+    if (!endDateTime) return 0;
+    const endTime = new Date(endDateTime).getTime();
+    const now = Date.now();
+    return Math.max(0, Math.floor((endTime - now) / 1000));
+  }, [endDateTime]);
 
-  // Calculate yield based on stake amount and betting period
+  // Calculate duration in days for yield calculation
+  const durationDays = durationSeconds / (24 * 60 * 60);
+
+  // Calculate yield based on stake amount and duration
   const yieldCalculations = useMemo(() => {
     const stake = parseFloat(stakeAmount) || 0;
-    const betDays = parseFloat(bettingPeriod) || 0;
 
-    if (stake <= 0 || betDays <= 0) {
+    if (stake <= 0 || durationDays <= 0) {
       return {
         totalYield: "0.000000",
         creatorYield: "0.000000",
@@ -64,7 +102,7 @@ export const CreatePoolPageContent = () => {
     }
 
     // Calculate yield: Principal * (APY/100) * (days/365)
-    const totalYield = stake * (AAVE_APY / 100) * (betDays / 365);
+    const totalYield = stake * (currentApy / 100) * (durationDays / 365);
     const creatorYield = totalYield * (CREATOR_SHARE / 100);
     const prizePool = totalYield * (PRIZE_POOL_SHARE / 100);
 
@@ -73,21 +111,34 @@ export const CreatePoolPageContent = () => {
       creatorYield: creatorYield.toFixed(6),
       prizePool: prizePool.toFixed(6),
     };
-  }, [stakeAmount, bettingPeriod]);
+  }, [stakeAmount, durationDays, currentApy]);
+
+  // Format duration for display
+  const formatDuration = (seconds: number): string => {
+    if (seconds <= 0) return "Invalid";
+    if (seconds < 60) return `${seconds} seconds`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ${Math.floor((seconds % 3600) / 60)} min`;
+    return `${Math.floor(seconds / 86400)} days ${Math.floor((seconds % 86400) / 3600)} hours`;
+  };
 
   const handleSubmit = async () => {
     try {
       const stake = parseFloat(stakeAmount);
-      const days = parseInt(bettingPeriod);
 
-      if (!betQuestion.trim() || stake <= 0 || days <= 0) {
+      if (!betQuestion.trim() || stake <= 0 || durationSeconds <= 0) {
         notification.error("Please fill in all fields correctly");
         return;
       }
 
-      notification.info("Creating pool... Please approve USDC spending first.");
+      if (durationSeconds < 60) {
+        notification.error("Pool must be at least 1 minute long");
+        return;
+      }
 
-      await createPool(betQuestion, days, stake);
+      notification.info("Creating pool... Please approve LINK spending first.");
+
+      await createPool(betQuestion, durationSeconds, stake);
 
       notification.success("Pool created successfully!");
       router.push("/pools");
@@ -97,16 +148,21 @@ export const CreatePoolPageContent = () => {
 
       // Check for Aave-specific errors
       if (errorMessage.includes("51")) {
-        notification.error("Aave supply cap exceeded. Try a smaller amount (e.g., 1-10 USDC) or try again later.");
+        notification.error("Aave supply cap exceeded. Try a smaller amount (e.g., 1-10 LINK) or try again later.");
       } else if (errorMessage.includes("allowance")) {
-        notification.error("USDC approval failed. Please try again.");
+        notification.error("LINK approval failed. Please try again.");
       } else {
         notification.error(errorMessage);
       }
     }
   };
 
-  const isFormValid = betQuestion.trim() !== "" && parseFloat(stakeAmount) > 0 && parseFloat(bettingPeriod) > 0;
+  const isFormValid = betQuestion.trim() !== "" && parseFloat(stakeAmount) > 0 && durationSeconds >= 60;
+
+  // Show loading state while checking connection
+  if (!checkComplete) {
+    return <PageLoader />;
+  }
 
   // Not Connected State
   if (!isConnected) {
@@ -152,8 +208,8 @@ export const CreatePoolPageContent = () => {
             Create a pool and ensure constant returns on your investments.
           </p>
           <p className="text-sm text-gray-400 mt-2">
-            Your USDC Balance:{" "}
-            <span className="font-semibold text-black">{parseFloat(balanceFormatted).toFixed(2)} USDC</span>
+            Your LINK Balance:{" "}
+            <span className="font-semibold text-black">{parseFloat(balanceFormatted).toFixed(4)} LINK</span>
           </p>
         </div>
 
@@ -185,7 +241,7 @@ export const CreatePoolPageContent = () => {
               >
                 Stake Amount:
               </label>
-              <span className="text-gray-400 text-sm font-light">Your initial investment (in USDC)</span>
+              <span className="text-gray-400 text-sm font-light">Your initial investment (in LINK)</span>
             </div>
             <input
               type="text"
@@ -197,27 +253,31 @@ export const CreatePoolPageContent = () => {
             />
           </div>
 
-          {/* Betting Period */}
+          {/* Pool End Date & Time */}
           <div className="space-y-3">
             <div>
               <label
                 className="text-2xl font-bold text-black block tracking-tight leading-none"
                 style={{ fontFamily: "'Clash Display', sans-serif" }}
               >
-                Betting Period:
+                Pool End Date & Time:
               </label>
               <span className="text-gray-400 text-sm font-light">
-                How long users can place bets (in days) - betting starts immediately
+                When betting closes - select a future date and time
               </span>
             </div>
             <input
-              type="text"
-              inputMode="numeric"
-              value={bettingPeriod}
-              onChange={e => handleBettingPeriodChange(e.target.value)}
-              placeholder="0"
+              type="datetime-local"
+              value={endDateTime}
+              onChange={e => setEndDateTime(e.target.value)}
+              min={getMinDateTime()}
               className="w-full border-2 border-[#cbd5e1] rounded-xl px-4 py-4 text-lg text-gray-900 focus:outline-none focus:border-black transition-colors bg-white"
             />
+            {durationSeconds > 0 && (
+              <p className="text-gray-500 text-sm">
+                Duration: <span className="font-medium text-black">{formatDuration(durationSeconds)}</span>
+              </p>
+            )}
           </div>
 
           {/* Yield Preview */}
@@ -231,7 +291,7 @@ export const CreatePoolPageContent = () => {
                   Total Yield
                 </span>
                 <span className="text-xl font-bold text-black" style={{ fontFamily: "'Clash Display', sans-serif" }}>
-                  {yieldCalculations.totalYield} USDC
+                  {yieldCalculations.totalYield} LINK
                 </span>
               </div>
               <div className="flex justify-between items-center">
@@ -242,7 +302,7 @@ export const CreatePoolPageContent = () => {
                   className="text-xl font-bold text-[#a88ff0]"
                   style={{ fontFamily: "'Clash Display', sans-serif" }}
                 >
-                  {yieldCalculations.creatorYield} USDC
+                  {yieldCalculations.creatorYield} LINK
                 </span>
               </div>
               <div className="flex justify-between items-center">
@@ -250,12 +310,12 @@ export const CreatePoolPageContent = () => {
                   Winner Prize Pool ({PRIZE_POOL_SHARE}%)
                 </span>
                 <span className="text-xl font-bold text-black" style={{ fontFamily: "'Clash Display', sans-serif" }}>
-                  {yieldCalculations.prizePool} USDC
+                  {yieldCalculations.prizePool} LINK
                 </span>
               </div>
             </div>
             <p className="text-xs text-gray-400 mt-4" style={{ fontFamily: "'Clash Display', sans-serif" }}>
-              Estimated based on ~{AAVE_APY}% APY from Aave V3
+              Estimated based on {apyLoading ? "..." : `${apyFormatted}%`} APY from Aave V3
             </p>
           </div>
         </div>

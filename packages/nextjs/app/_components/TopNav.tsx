@@ -51,7 +51,7 @@ export const TopNav = () => {
                 <div>
                   <h3 className="font-bold text-black text-lg">Create a Pool</h3>
                   <p className="text-gray-600">
-                    Anyone can create a prediction pool by depositing USDC and setting a betting period. Your deposit
+                    Anyone can create a prediction pool by depositing LINK and setting a betting period. Your deposit
                     earns yield from Aave while the pool is active.
                   </p>
                 </div>

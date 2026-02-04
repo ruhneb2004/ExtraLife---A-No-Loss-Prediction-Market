@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, ExternalLink, Loader2, Wallet } from "lucide-react";
 import { useAccount } from "wagmi";
-import { formatTimeLeft, usePool, usePoolCount, useUsdcBalance, useUserBet } from "~~/hooks/useMarketController";
+import { formatTimeLeft, useLinkBalance, usePool, usePoolCount, useUserBet } from "~~/hooks/useMarketController";
 
 // Component to check if pool was created by user and report back
 const PoolCreatorChecker = ({
@@ -64,7 +64,7 @@ const UserPoolCard = ({ poolId }: { poolId: number }) => {
       <div className="flex items-center gap-4 text-sm">
         <span className="text-gray-500">
           Bet:{" "}
-          <span className="font-semibold text-black">{parseFloat(userBet.principalFormatted).toFixed(2)} USDC</span>
+          <span className="font-semibold text-black">{parseFloat(userBet.principalFormatted).toFixed(4)} LINK</span>
         </span>
         <span className={`font-bold ${userBet.side ? "text-green-600" : "text-red-500"}`}>
           {userBet.side ? "YES" : "NO"}
@@ -84,7 +84,7 @@ const UserPoolCard = ({ poolId }: { poolId: number }) => {
 export const DashboardContent = () => {
   const router = useRouter();
   const { address, isConnected, chain } = useAccount();
-  const { balanceFormatted, isLoading: balanceLoading } = useUsdcBalance();
+  const { balanceFormatted, isLoading: balanceLoading } = useLinkBalance();
   const { poolCount, isLoading: countLoading } = usePoolCount();
 
   const [copied, setCopied] = useState(false);
@@ -138,6 +138,15 @@ export const DashboardContent = () => {
     );
   }
 
+  // Show loading state while fetching data
+  if (countLoading || balanceLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="animate-spin text-[#a88ff0]" size={48} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       {/* Wallet Info Card */}
@@ -174,9 +183,9 @@ export const DashboardContent = () => {
 
           {/* Balance */}
           <div className="bg-gray-50 rounded-2xl p-6">
-            <p className="text-gray-400 text-sm mb-2">USDC Balance</p>
+            <p className="text-gray-400 text-sm mb-2">LINK Balance</p>
             <p className="text-black font-semibold text-lg">
-              {balanceLoading ? "Loading..." : `${parseFloat(balanceFormatted).toFixed(2)} USDC`}
+              {balanceLoading ? "Loading..." : `${parseFloat(balanceFormatted).toFixed(4)} LINK`}
             </p>
           </div>
         </div>

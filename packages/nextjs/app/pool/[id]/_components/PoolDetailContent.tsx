@@ -1,44 +1,65 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { GlobalStyles, Sidebar, TopNav } from "../../../_components";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { GlobalStyles, PageLoader, Sidebar, TopNav } from "../../../_components";
+import { ArrowLeft } from "lucide-react";
+import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
-// 40% goes to pool creator
 import {
   formatTimeLeft,
+  useAaveApy,
   useClaim,
   useClaimCreatorRewards,
+  useContractOwner,
   usePlaceBet,
   usePool,
   usePoolMetrics,
+  useResolvePool,
   useUserBet,
 } from "~~/hooks/useMarketController";
 import { notification } from "~~/utils/scaffold-eth";
 
-// Constants for yield projection
-const AAVE_APY = 3.5; // Approximate Aave V3 APY for USDC
-const PRIZE_POOL_SHARE = 60; // 60% goes to winners
-const CREATOR_SHARE = 40; // 40% goes to pool creator
+const FALLBACK_APY = 3.5;
+const PRIZE_POOL_SHARE = 60;
+const CREATOR_SHARE = 40;
 
 export const PoolDetailContent = () => {
   const params = useParams();
   const router = useRouter();
-  const { isConnected, address } = useAccount();
+  const { isConnected, address, isReconnecting, status } = useAccount();
   const [betAmount, setBetAmount] = useState(0);
+  const [checkComplete, setCheckComplete] = useState(false);
+
+  useEffect(() => {
+    if (isReconnecting || status === "connecting") {
+      return;
+    }
+
+    if (status === "connected" || status === "disconnected") {
+      const timer = setTimeout(() => {
+        setCheckComplete(true);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isReconnecting, status]);
 
   const poolId = Number(params.id);
   const { pool, isLoading: poolLoading, refetch: refetchPool } = usePool(poolId);
   const { userBet, refetch: refetchBet } = useUserBet(poolId);
   const { metrics } = usePoolMetrics(poolId);
+  const { owner } = useContractOwner();
+  const { apy: fetchedApy, apyFormatted } = useAaveApy();
 
-  // Contract write hooks
+  const currentApy = fetchedApy ?? FALLBACK_APY;
+
   const { placeBet, isPending: isBetting } = usePlaceBet();
   const { claim, isPending: isClaiming } = useClaim();
   const { claimCreatorRewards, isPending: isClaimingCreator } = useClaimCreatorRewards();
+  const { resolvePool, isPending: isResolving } = useResolvePool();
 
-  // Calculate projected yield based on pool size and remaining time
+  const isOwner = address && owner && address.toLowerCase() === owner.toLowerCase();
+
   const projectedYield = useMemo(() => {
     if (!pool) {
       return { totalYield: 0, prizePool: 0, creatorReward: 0 };
@@ -47,7 +68,6 @@ export const PoolDetailContent = () => {
     const totalPrincipal = parseFloat(pool.totalPrincipalFormatted);
     const daysRemaining = pool.timeLeftSeconds / (24 * 60 * 60);
 
-    // If pool is resolved or ended, show actual yield from metrics
     if (!pool.isLive && metrics) {
       const actualYield = parseFloat(metrics.currentTotalYieldFormatted);
       return {
@@ -57,8 +77,10 @@ export const PoolDetailContent = () => {
       };
     }
 
-    // Project yield for remaining duration: Principal * (APY/100) * (days/365)
-    const projectedTotalYield = totalPrincipal * (AAVE_APY / 100) * (daysRemaining / 365);
+    const currentAccruedYield = metrics ? parseFloat(metrics.currentTotalYieldFormatted) : 0;
+    const futureYield = totalPrincipal * (currentApy / 100) * (daysRemaining / 365);
+    const projectedTotalYield = currentAccruedYield + futureYield;
+
     const projectedPrizePool = projectedTotalYield * (PRIZE_POOL_SHARE / 100);
     const projectedCreatorReward = projectedTotalYield * (CREATOR_SHARE / 100);
 
@@ -67,7 +89,53 @@ export const PoolDetailContent = () => {
       prizePool: projectedPrizePool,
       creatorReward: projectedCreatorReward,
     };
-  }, [pool, metrics]);
+  }, [pool, metrics, currentApy]);
+
+  const userPayout = useMemo(() => {
+    if (!pool || !userBet?.hasBet || !pool.resolved) {
+      return null;
+    }
+
+    const userPrincipal = parseFloat(userBet.principalFormatted);
+    const isWinner = userBet.side === pool.outcome;
+
+    if (!isWinner) {
+      return {
+        isWinner: false,
+        principal: userPrincipal,
+        winnings: 0,
+        total: userPrincipal,
+      };
+    }
+
+    const prizePool = projectedYield.prizePool;
+    const userWeight = Number(userBet.weight);
+    const totalWinningWeight = userBet.side ? Number(pool.totalYesWeight) : Number(pool.totalNoWeight);
+
+    const userShare = totalWinningWeight > 0 ? (userWeight / totalWinningWeight) * prizePool : 0;
+
+    return {
+      isWinner: true,
+      principal: userPrincipal,
+      winnings: userShare,
+      total: userPrincipal + userShare,
+    };
+  }, [pool, userBet, projectedYield]);
+
+  const creatorPayout = useMemo(() => {
+    if (!pool || !pool.resolved) {
+      return null;
+    }
+
+    const creatorPrincipal = parseFloat(formatUnits(pool.creatorPrincipal, 18));
+    const creatorReward = projectedYield.creatorReward;
+
+    return {
+      principal: creatorPrincipal,
+      reward: creatorReward,
+      total: creatorPrincipal + creatorReward,
+    };
+  }, [pool, projectedYield]);
 
   const handlePlaceBet = async (side: boolean) => {
     try {
@@ -76,9 +144,9 @@ export const PoolDetailContent = () => {
         return;
       }
 
-      notification.info("Placing bet... Please approve USDC spending.");
+      notification.info("Placing bet... Please approve LINK spending.");
       await placeBet(poolId, side, betAmount);
-      notification.success(`Successfully bet ${betAmount} USDC on ${side ? "YES" : "NO"}!`);
+      notification.success(`Successfully bet ${betAmount} LINK on ${side ? "YES" : "NO"}!`);
 
       setBetAmount(0);
       refetchPool();
@@ -116,17 +184,23 @@ export const PoolDetailContent = () => {
     }
   };
 
-  // Loading state
-  if (poolLoading) {
-    return (
-      <div className="flex min-h-screen w-full bg-white relative overflow-x-hidden font-sans items-center justify-center">
-        <GlobalStyles />
-        <Loader2 className="animate-spin text-[#a88ff0]" size={48} />
-      </div>
-    );
+  const handleResolvePool = async (outcome: boolean) => {
+    try {
+      notification.info(`Resolving pool with outcome: ${outcome ? "YES" : "NO"}...`);
+      await resolvePool(poolId, outcome);
+      notification.success(`Pool resolved successfully! Outcome: ${outcome ? "YES" : "NO"}`);
+      refetchPool();
+    } catch (error: unknown) {
+      console.error("Error resolving pool:", error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to resolve pool";
+      notification.error(errorMessage);
+    }
+  };
+
+  if (!checkComplete || poolLoading) {
+    return <PageLoader />;
   }
 
-  // Pool not found
   if (!pool) {
     return (
       <div className="flex min-h-screen w-full bg-white relative overflow-x-hidden font-sans">
@@ -156,12 +230,9 @@ export const PoolDetailContent = () => {
 
       <Sidebar />
 
-      {/* Top Navigation */}
       <TopNav />
 
-      {/* Main Content Area */}
       <main className="flex-1 ml-[240px] relative py-12 pr-12 pl-8 max-w-[1400px]">
-        {/* Back Button */}
         <button
           onClick={() => router.back()}
           className="flex items-center gap-2 text-gray-400 hover:text-black transition-colors mb-12"
@@ -171,16 +242,12 @@ export const PoolDetailContent = () => {
           <span>Back</span>
         </button>
 
-        {/* Pool Detail Layout */}
         <div className="flex flex-col lg:flex-row gap-16 items-start">
-          {/* Left Side - Pool Info */}
           <div className="flex-1 max-w-2xl" style={{ fontFamily: "'Clash Display', sans-serif" }}>
-            {/* Title */}
             <h1 className="text-4xl md:text-5xl font-bold text-black mb-4 leading-[1.1] tracking-tight">
               {pool.question}
             </h1>
 
-            {/* Status Badge */}
             <div className="flex items-center gap-2 mb-12">
               <div className={`w-3 h-3 rounded-full ${pool.isLive ? "bg-[#4ade80] animate-pulse" : "bg-[#f87171]"}`} />
               <span className={`font-medium text-sm ${pool.isLive ? "text-[#4ade80]" : "text-[#f87171]"}`}>
@@ -194,15 +261,13 @@ export const PoolDetailContent = () => {
 
             {pool.isLive ? (
               <>
-                {/* Pool Stats */}
                 <div className="mb-12 p-6 border-l-4 border-[#a88ff0] bg-gray-50">
                   <h3 className="text-lg font-bold text-gray-900 mb-2 uppercase tracking-wider">Current Pool Size</h3>
                   <p className="text-[#a88ff0] text-3xl md:text-4xl font-black tracking-tight">
-                    {parseFloat(pool.totalPrincipalFormatted).toFixed(2)} USDC
+                    {parseFloat(pool.totalPrincipalFormatted).toFixed(2)} LINK
                   </p>
                 </div>
 
-                {/* Betting Distribution */}
                 <div className="mb-8">
                   <h3 className="text-xl font-bold text-black mb-6 border-b-2 border-black pb-2 inline-block">
                     Current Betting Distribution:
@@ -211,55 +276,52 @@ export const PoolDetailContent = () => {
                     <div className="flex items-center justify-between p-4 bg-[#4ade80]/10 rounded-xl border border-[#4ade80]">
                       <span className="text-lg font-bold text-[#22c55e]">YES</span>
                       <span className="text-lg font-semibold text-black">
-                        {parseFloat(pool.yesPrincipalFormatted).toFixed(2)} USDC
+                        {parseFloat(pool.yesPrincipalFormatted).toFixed(2)} LINK
                       </span>
                     </div>
                     <div className="flex items-center justify-between p-4 bg-[#f87171]/10 rounded-xl border border-[#f87171]">
                       <span className="text-lg font-bold text-[#ef4444]">NO</span>
                       <span className="text-lg font-semibold text-black">
-                        {parseFloat(pool.noPrincipalFormatted).toFixed(2)} USDC
+                        {parseFloat(pool.noPrincipalFormatted).toFixed(2)} LINK
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Projected Yield */}
                 <div className="mb-8 p-5 bg-[#a88ff0]/5 rounded-xl border-2 border-[#a88ff0]/30">
                   <h4 className="text-sm font-bold text-black mb-4 uppercase tracking-wide">Projected Returns</h4>
                   <div className={isCreator ? "grid grid-cols-2 gap-6" : ""}>
                     <div>
                       <p className="text-xs text-gray-500 mb-1 font-medium">Prize Pool (60%)</p>
-                      <p className="text-xl font-bold text-black">{projectedYield.prizePool.toFixed(4)} USDC</p>
+                      <p className="text-xl font-bold text-black">{projectedYield.prizePool.toFixed(4)} LINK</p>
                     </div>
                     {isCreator && (
                       <div>
                         <p className="text-xs text-gray-500 mb-1 font-medium">Your Reward (40%)</p>
                         <p className="text-xl font-bold text-[#a88ff0]">
-                          {projectedYield.creatorReward.toFixed(4)} USDC
+                          {projectedYield.creatorReward.toFixed(4)} LINK
                         </p>
                       </div>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 mt-4">Estimated based on ~{AAVE_APY}% APY from Aave V3</p>
+                  <p className="text-xs text-gray-400 mt-4">Estimated based on ~{apyFormatted} APY from Aave V3</p>
                 </div>
 
-                {/* Current Accrued Yield (if any) */}
                 {metrics && parseFloat(metrics.currentTotalYieldFormatted) > 0 && (
                   <div className="mb-8 p-4 bg-gray-50 rounded-xl border border-gray-200">
                     <h4 className="text-xs font-bold text-gray-500 mb-1 uppercase tracking-wide">Accrued So Far</h4>
                     <p className="text-lg font-bold text-black">
-                      {parseFloat(metrics.currentTotalYieldFormatted).toFixed(6)} USDC
+                      {parseFloat(metrics.currentTotalYieldFormatted).toFixed(6)} LINK
                     </p>
                   </div>
                 )}
 
-                {/* User's Existing Bet */}
                 {userBet?.hasBet && (
                   <div className="mb-8 p-6 bg-[#a88ff0]/10 rounded-xl border-2 border-[#a88ff0]">
                     <h4 className="text-lg font-bold text-black mb-2">Your Bet</h4>
                     <p className="text-gray-600">
                       You bet{" "}
-                      <span className="font-bold">{parseFloat(userBet.principalFormatted).toFixed(2)} USDC</span> on{" "}
+                      <span className="font-bold">{parseFloat(userBet.principalFormatted).toFixed(2)} LINK</span> on{" "}
                       <span className={`font-bold ${userBet.side ? "text-[#22c55e]" : "text-[#ef4444]"}`}>
                         {userBet.side ? "YES" : "NO"}
                       </span>
@@ -269,7 +331,6 @@ export const PoolDetailContent = () => {
               </>
             ) : (
               <>
-                {/* Results Section for Resolved/Closed Pools */}
                 {pool.resolved ? (
                   <div className="mb-12">
                     <h2 className="text-2xl font-bold text-black mb-4 uppercase tracking-wide">AND THE RESULT IS:</h2>
@@ -279,62 +340,112 @@ export const PoolDetailContent = () => {
                       {pool.outcome ? "YES" : "NO"}!
                     </p>
                   </div>
+                ) : isOwner ? (
+                  <div className="mb-12 p-6 bg-orange-50 border-2 border-orange-400 rounded-xl">
+                    <h3 className="text-lg font-bold text-orange-800 mb-2">🔐 Owner: Resolve This Pool</h3>
+                    <p className="text-orange-700 mb-6">
+                      Betting period has ended. As the contract owner, you can resolve this pool by selecting the
+                      winning outcome.
+                    </p>
+                    <div className="flex gap-4">
+                      <button
+                        onClick={() => handleResolvePool(true)}
+                        disabled={isResolving}
+                        className="flex-1 py-4 rounded-xl text-xl font-bold bg-[#4ade80] text-black border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-[#22c55e] transition-all active:shadow-none active:translate-x-[4px] active:translate-y-[4px] disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isResolving ? "Resolving..." : "Resolve YES ✓"}
+                      </button>
+                      <button
+                        onClick={() => handleResolvePool(false)}
+                        disabled={isResolving}
+                        className="flex-1 py-4 rounded-xl text-xl font-bold bg-[#f87171] text-black border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-[#ef4444] transition-all active:shadow-none active:translate-x-[4px] active:translate-y-[4px] disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isResolving ? "Resolving..." : "Resolve NO ✗"}
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   <div className="mb-12 p-6 bg-yellow-50 border-2 border-yellow-400 rounded-xl">
                     <h3 className="text-lg font-bold text-yellow-800 mb-2">Awaiting Resolution</h3>
                     <p className="text-yellow-700">
-                      Betting period has ended. Waiting for the pool creator to resolve the outcome.
+                      Betting period has ended. Waiting for the contract owner to resolve the outcome.
                     </p>
                   </div>
                 )}
 
-                {/* Final Stats */}
                 <div className="mb-8 p-6 border-l-4 border-[#a88ff0] bg-gray-50">
                   <h3 className="text-lg font-bold text-gray-900 mb-2 uppercase tracking-wider">Final Pool Size</h3>
                   <p className="text-[#a88ff0] text-3xl md:text-4xl font-black tracking-tight">
-                    {parseFloat(pool.totalPrincipalFormatted).toFixed(2)} USDC
+                    {parseFloat(pool.totalPrincipalFormatted).toFixed(2)} LINK
                   </p>
                 </div>
 
-                {/* User Claim Section */}
-                {userBet?.hasBet && pool.resolved && (
-                  <div className="mb-8 p-6 bg-[#a88ff0]/10 rounded-xl border-2 border-[#a88ff0]">
-                    <h4 className="text-lg font-bold text-black mb-2">Your Bet</h4>
-                    <p className="text-gray-600 mb-4">
-                      You bet{" "}
-                      <span className="font-bold">{parseFloat(userBet.principalFormatted).toFixed(2)} USDC</span> on{" "}
-                      <span className={`font-bold ${userBet.side ? "text-[#22c55e]" : "text-[#ef4444]"}`}>
-                        {userBet.side ? "YES" : "NO"}
-                      </span>
-                      {userBet.side === pool.outcome && " 🎉 You won!"}
-                    </p>
+                {userBet?.hasBet && pool.resolved && userPayout && (
+                  <div className="mb-8 p-6 rounded-xl border border-gray-200 bg-gray-50">
+                    <div className="mb-4">
+                      <h4 className="text-xl font-bold text-black mb-1">
+                        {userPayout.isWinner ? "You Won" : "You Lost"}
+                      </h4>
+                      <p className="text-gray-500 text-sm">
+                        You bet on <span className="font-semibold text-black">{userBet.side ? "YES" : "NO"}</span>
+                        {" · "}Outcome was{" "}
+                        <span className="font-semibold text-black">{pool.outcome ? "YES" : "NO"}</span>
+                      </p>
+                    </div>
+
+                    <div className="bg-white rounded-lg p-4 mb-4 border border-gray-200">
+                      <p className="text-gray-600 text-center">
+                        You invested{" "}
+                        <span className="font-bold text-black">{userPayout.principal.toFixed(4)} LINK</span>
+                        {userPayout.isWinner && userPayout.winnings > 0 && (
+                          <span className="text-green-600"> (+{userPayout.winnings.toFixed(4)} winnings)</span>
+                        )}
+                      </p>
+                      <p className="text-center mt-3 text-lg">
+                        You get back{" "}
+                        <span className="font-bold text-black text-xl">{userPayout.total.toFixed(4)} LINK</span>
+                      </p>
+                    </div>
+
                     {!userBet.claimed ? (
                       <button
                         onClick={handleClaim}
                         disabled={isClaiming}
                         className="w-full py-4 rounded-xl text-xl font-bold bg-[#a88ff0] text-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-[#9370db] transition-all active:shadow-none active:translate-x-[4px] active:translate-y-[4px] disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {isClaiming ? "Claiming..." : "Claim Principal + Winnings"}
+                        {isClaiming ? "Claiming..." : `Claim ${userPayout.total.toFixed(4)} LINK`}
                       </button>
                     ) : (
-                      <p className="text-green-600 font-semibold">✓ Already claimed</p>
+                      <p className="text-gray-500 font-medium text-center py-2">Already claimed</p>
                     )}
                   </div>
                 )}
 
-                {/* Creator Claim Section */}
-                {canClaimCreatorRewards && (
-                  <div className="mb-8 p-6 bg-yellow-50 rounded-xl border-2 border-yellow-400">
-                    <h4 className="text-lg font-bold text-black mb-2">Creator Rewards</h4>
-                    <p className="text-gray-600 mb-4">
-                      As the pool creator, you can claim your principal + 40% of the yield.
-                    </p>
+                {canClaimCreatorRewards && creatorPayout && (
+                  <div className="mb-8 p-6 rounded-xl border border-gray-200 bg-gray-50">
+                    <div className="mb-4">
+                      <h4 className="text-xl font-bold text-black mb-1">Creator Rewards</h4>
+                      <p className="text-gray-500 text-sm">Your pool has been resolved</p>
+                    </div>
+
+                    <div className="bg-white rounded-lg p-4 mb-4 border border-gray-200">
+                      <p className="text-gray-600 text-center">
+                        You invested{" "}
+                        <span className="font-bold text-black">{creatorPayout.principal.toFixed(4)} LINK</span>
+                        <span className="text-[#a88ff0]"> (+{creatorPayout.reward.toFixed(4)} creator reward)</span>
+                      </p>
+                      <p className="text-center mt-3 text-lg">
+                        You get back{" "}
+                        <span className="font-bold text-black text-xl">{creatorPayout.total.toFixed(4)} LINK</span>
+                      </p>
+                    </div>
+
                     <button
                       onClick={handleClaimCreatorRewards}
                       disabled={isClaimingCreator}
-                      className="w-full py-4 rounded-xl text-xl font-bold bg-yellow-400 text-black border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-yellow-500 transition-all active:shadow-none active:translate-x-[4px] active:translate-y-[4px] disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full py-4 rounded-xl text-xl font-bold bg-[#a88ff0] text-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-[#9370db] transition-all active:shadow-none active:translate-x-[4px] active:translate-y-[4px] disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {isClaimingCreator ? "Claiming..." : "Claim Creator Rewards"}
+                      {isClaimingCreator ? "Claiming..." : `Claim ${creatorPayout.total.toFixed(4)} LINK`}
                     </button>
                   </div>
                 )}
@@ -342,17 +453,14 @@ export const PoolDetailContent = () => {
             )}
           </div>
 
-          {/* Right Side - Betting Card (only show for live pools with no existing bet and not creator) */}
           {pool.isLive && !userBet?.hasBet && !isCreator && (
             <div className="sticky top-8">
               <div
                 className="w-full md:w-[400px] bg-white rounded-[40px] p-8 border-[3px] border-black shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] relative z-10"
                 style={{ fontFamily: "'Clash Display', sans-serif" }}
               >
-                {/* BUY Label */}
-                <p className="text-gray-400 text-xl font-bold tracking-wide uppercase mb-1">BET AMOUNT (USDC)</p>
+                <p className="text-gray-400 text-xl font-bold tracking-wide uppercase mb-1">BET AMOUNT (LINK)</p>
 
-                {/* Amount - Editable */}
                 <div className="flex items-baseline mb-8">
                   <span className="text-[5rem] leading-none font-black text-black tracking-tighter mr-1">$</span>
                   <input
@@ -374,9 +482,7 @@ export const PoolDetailContent = () => {
                   />
                 </div>
 
-                {/* Action Buttons */}
                 <div className="space-y-4">
-                  {/* YES Button */}
                   <button
                     disabled={!isConnected || isBetting || betAmount <= 0}
                     onClick={() => handlePlaceBet(true)}
@@ -389,7 +495,6 @@ export const PoolDetailContent = () => {
                     {isBetting ? "Betting..." : "YES"}
                   </button>
 
-                  {/* NO Button */}
                   <button
                     disabled={!isConnected || isBetting || betAmount <= 0}
                     onClick={() => handlePlaceBet(false)}
@@ -408,12 +513,10 @@ export const PoolDetailContent = () => {
                 )}
               </div>
 
-              {/* Decorative background element behind card */}
               <div className="absolute -z-10 top-4 -right-4 w-full h-full rounded-[40px] bg-gray-100 border border-gray-200 hidden lg:block"></div>
             </div>
           )}
 
-          {/* Show message for creator that they can't bet */}
           {pool.isLive && isCreator && !userBet?.hasBet && (
             <div className="sticky top-8">
               <div
@@ -429,7 +532,6 @@ export const PoolDetailContent = () => {
             </div>
           )}
 
-          {/* Show bet placed message if user already bet */}
           {pool.isLive && userBet?.hasBet && (
             <div className="sticky top-8">
               <div

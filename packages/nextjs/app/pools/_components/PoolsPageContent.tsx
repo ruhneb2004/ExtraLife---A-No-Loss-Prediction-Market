@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ConnectWalletButton, GlobalStyles, Sidebar, TopNav } from "../../_components";
+import { ConnectWalletButton, GlobalStyles, PageLoader, Sidebar, TopNav } from "../../_components";
 import { PoolsExplorer } from "./PoolsExplorer";
 import { useAccount } from "wagmi";
 
@@ -25,14 +25,7 @@ export const PoolsPageContent = () => {
 
   // Show loading state while checking connection
   if (!checkComplete) {
-    return (
-      <div className="flex min-h-screen w-full bg-white items-center justify-center">
-        <GlobalStyles />
-        <p className="text-gray-400 text-xl" style={{ fontFamily: "'Clash Display', sans-serif" }}>
-          Loading...
-        </p>
-      </div>
-    );
+    return <PageLoader />;
   }
 
   // Show connect prompt if not connected
