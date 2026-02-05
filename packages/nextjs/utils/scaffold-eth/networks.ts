@@ -33,7 +33,8 @@ export const RPC_CHAIN_NAMES: Record<number, string> = {
   [chains.baseGoerli.id]: "base-goerli",
   [chains.baseSepolia.id]: "base-sepolia",
   [chains.celo.id]: "celo-mainnet",
-  [chains.celoSepolia.id]: "celo-sepolia",
+  // Note: celoSepolia may not be available in older viem versions
+  ...((chains as any).celoSepolia ? { [(chains as any).celoSepolia.id]: "celo-sepolia" } : {}),
 };
 
 export const getAlchemyHttpUrl = (chainId: number) => {

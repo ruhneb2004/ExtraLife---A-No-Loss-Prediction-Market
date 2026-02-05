@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SwapWidget } from "../../components/LifiSwapWidget";
 import { ConnectWalletButton } from "./ConnectWalletButton";
 import { X } from "lucide-react";
 
@@ -23,6 +24,7 @@ export const TopNav = () => {
           How it Works
         </button>
         <ConnectWalletButton />
+        <SwapWidget />
       </div>
 
       {/* How it Works Modal */}
