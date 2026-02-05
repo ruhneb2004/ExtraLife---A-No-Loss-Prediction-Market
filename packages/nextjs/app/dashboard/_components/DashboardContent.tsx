@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, ExternalLink, Loader2, Wallet } from "lucide-react";
 import { useAccount } from "wagmi";
-import { formatTimeLeft, useLinkBalance, usePool, usePoolCount, useUserBet } from "~~/hooks/useMarketController";
+import { useLinkBalance, usePool, usePoolCount, useUserBet } from "~~/hooks/useMarketController";
+import { formatTimeLeft } from "~~/utils/scaffold-eth/time";
 
 // Component to check if pool was created by user and report back
 const PoolCreatorChecker = ({

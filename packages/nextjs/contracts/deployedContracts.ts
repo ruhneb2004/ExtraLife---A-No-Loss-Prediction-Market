@@ -22,31 +22,8 @@ const deployedContracts = {
               type: "address",
               internalType: "address",
             },
-            {
-              name: "_ooAddress",
-              type: "address",
-              internalType: "address",
-            },
-            {
-              name: "_bondAddress",
-              type: "address",
-              internalType: "address",
-            },
           ],
           stateMutability: "nonpayable",
-        },
-        {
-          type: "function",
-          name: "IDENTIFIER",
-          inputs: [],
-          outputs: [
-            {
-              name: "",
-              type: "bytes32",
-              internalType: "bytes32",
-            },
-          ],
-          stateMutability: "view",
         },
         {
           type: "function",
@@ -83,19 +60,6 @@ const deployedContracts = {
               name: "claimed",
               type: "bool",
               internalType: "bool",
-            },
-          ],
-          stateMutability: "view",
-        },
-        {
-          type: "function",
-          name: "bondCurrency",
-          inputs: [],
-          outputs: [
-            {
-              name: "",
-              type: "address",
-              internalType: "contract IERC20",
             },
           ],
           stateMutability: "view",
@@ -186,13 +150,13 @@ const deployedContracts = {
         },
         {
           type: "function",
-          name: "oo",
+          name: "owner",
           inputs: [],
           outputs: [
             {
               name: "",
               type: "address",
-              internalType: "contract OptimisticOracleV2Interface",
+              internalType: "address",
             },
           ],
           stateMutability: "view",
@@ -285,21 +249,6 @@ const deployedContracts = {
               internalType: "bool",
             },
             {
-              name: "requestSubmitted",
-              type: "bool",
-              internalType: "bool",
-            },
-            {
-              name: "requestTime",
-              type: "uint256",
-              internalType: "uint256",
-            },
-            {
-              name: "ancillaryData",
-              type: "bytes",
-              internalType: "bytes",
-            },
-            {
               name: "yesPrincipal",
               type: "uint256",
               internalType: "uint256",
@@ -329,25 +278,17 @@ const deployedContracts = {
         },
         {
           type: "function",
-          name: "requestResolution",
+          name: "resolvePool",
           inputs: [
             {
               name: "_poolId",
               type: "uint256",
               internalType: "uint256",
             },
-          ],
-          outputs: [],
-          stateMutability: "nonpayable",
-        },
-        {
-          type: "function",
-          name: "settleResolution",
-          inputs: [
             {
-              name: "_poolId",
-              type: "uint256",
-              internalType: "uint256",
+              name: "_outcome",
+              type: "bool",
+              internalType: "bool",
             },
           ],
           outputs: [],
@@ -409,25 +350,6 @@ const deployedContracts = {
             },
             {
               name: "weight",
-              type: "uint256",
-              indexed: false,
-              internalType: "uint256",
-            },
-          ],
-          anonymous: false,
-        },
-        {
-          type: "event",
-          name: "OracleRequested",
-          inputs: [
-            {
-              name: "poolId",
-              type: "uint256",
-              indexed: true,
-              internalType: "uint256",
-            },
-            {
-              name: "timestamp",
               type: "uint256",
               indexed: false,
               internalType: "uint256",
@@ -492,7 +414,7 @@ const deployedContracts = {
   },
   11155111: {
     MarketController: {
-      address: "0x6f81048e1988c85c99316472c94d2cf7a7eac21d",
+      address: "0x1457b3d2be54073109071ad6691dc1912deed4a7",
       abi: [
         {
           type: "constructor",
@@ -507,31 +429,8 @@ const deployedContracts = {
               type: "address",
               internalType: "address",
             },
-            {
-              name: "_ooAddress",
-              type: "address",
-              internalType: "address",
-            },
-            {
-              name: "_bondAddress",
-              type: "address",
-              internalType: "address",
-            },
           ],
           stateMutability: "nonpayable",
-        },
-        {
-          type: "function",
-          name: "IDENTIFIER",
-          inputs: [],
-          outputs: [
-            {
-              name: "",
-              type: "bytes32",
-              internalType: "bytes32",
-            },
-          ],
-          stateMutability: "view",
         },
         {
           type: "function",
@@ -568,19 +467,6 @@ const deployedContracts = {
               name: "claimed",
               type: "bool",
               internalType: "bool",
-            },
-          ],
-          stateMutability: "view",
-        },
-        {
-          type: "function",
-          name: "bondCurrency",
-          inputs: [],
-          outputs: [
-            {
-              name: "",
-              type: "address",
-              internalType: "contract IERC20",
             },
           ],
           stateMutability: "view",
@@ -671,13 +557,13 @@ const deployedContracts = {
         },
         {
           type: "function",
-          name: "oo",
+          name: "owner",
           inputs: [],
           outputs: [
             {
               name: "",
               type: "address",
-              internalType: "contract OptimisticOracleV2Interface",
+              internalType: "address",
             },
           ],
           stateMutability: "view",
@@ -770,21 +656,6 @@ const deployedContracts = {
               internalType: "bool",
             },
             {
-              name: "requestSubmitted",
-              type: "bool",
-              internalType: "bool",
-            },
-            {
-              name: "requestTime",
-              type: "uint256",
-              internalType: "uint256",
-            },
-            {
-              name: "ancillaryData",
-              type: "bytes",
-              internalType: "bytes",
-            },
-            {
               name: "yesPrincipal",
               type: "uint256",
               internalType: "uint256",
@@ -814,25 +685,17 @@ const deployedContracts = {
         },
         {
           type: "function",
-          name: "requestResolution",
+          name: "resolvePool",
           inputs: [
             {
               name: "_poolId",
               type: "uint256",
               internalType: "uint256",
             },
-          ],
-          outputs: [],
-          stateMutability: "nonpayable",
-        },
-        {
-          type: "function",
-          name: "settleResolution",
-          inputs: [
             {
-              name: "_poolId",
-              type: "uint256",
-              internalType: "uint256",
+              name: "_outcome",
+              type: "bool",
+              internalType: "bool",
             },
           ],
           outputs: [],
@@ -903,25 +766,6 @@ const deployedContracts = {
         },
         {
           type: "event",
-          name: "OracleRequested",
-          inputs: [
-            {
-              name: "poolId",
-              type: "uint256",
-              indexed: true,
-              internalType: "uint256",
-            },
-            {
-              name: "timestamp",
-              type: "uint256",
-              indexed: false,
-              internalType: "uint256",
-            },
-          ],
-          anonymous: false,
-        },
-        {
-          type: "event",
           name: "PoolCreated",
           inputs: [
             {
@@ -972,7 +816,7 @@ const deployedContracts = {
         },
       ],
       inheritedFunctions: {},
-      deployedOnBlock: 9865502,
+      deployedOnBlock: 9898957,
     },
   },
 } as const;

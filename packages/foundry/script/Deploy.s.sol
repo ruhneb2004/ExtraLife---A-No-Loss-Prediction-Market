@@ -9,9 +9,9 @@ import { IPool } from "lib/aave-v3-core/contracts/interfaces/IPool.sol";
 
 contract DeployScript is ScaffoldETHDeploy {
     // --- SEPOLIA AAVE V3 ADDRESSES ---
-    address constant SEPOLIA_USDC = 0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8;
+    address constant SEPOLIA_LINK = 0xf8Fb3713D459D7C1018BD0A49D19b4C44290EBE5;
     address constant SEPOLIA_POOL = 0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951;
-    address constant SEPOLIA_AUSDC = 0x16dA4541aD1807f4443d92D26044C1147406EB80;
+    address constant SEPOLIA_ALINK = 0x3FfAf50D4F4E96eB78f2407c090b72e86eCaed24;
 
     // --- BASE SEPOLIA AAVE V3 ADDRESSES ---
     // Using the USDC from Circle's Base Sepolia faucet
@@ -21,53 +21,53 @@ contract DeployScript is ScaffoldETHDeploy {
 
     function run() external ScaffoldEthDeployerRunner {
         // Detect chain and use appropriate addresses
-        address usdcAddr;
+        address tokenAddr;
         address poolAddr;
-        address aUsdcAddr;
+        address aTokenAddr;
 
         if (block.chainid == 11155111) {
             // Sepolia
-            usdcAddr = SEPOLIA_USDC;
+            tokenAddr = SEPOLIA_LINK;
             poolAddr = SEPOLIA_POOL;
-            aUsdcAddr = SEPOLIA_AUSDC;
+            aTokenAddr = SEPOLIA_ALINK;
             console.log("Deploying to Sepolia...");
         } else if (block.chainid == 84532) {
             // Base Sepolia
-            usdcAddr = BASE_SEPOLIA_USDC;
+            tokenAddr = BASE_SEPOLIA_USDC;
             poolAddr = BASE_SEPOLIA_POOL;
-            aUsdcAddr = BASE_SEPOLIA_AUSDC;
+            aTokenAddr = BASE_SEPOLIA_AUSDC;
             console.log("Deploying to Base Sepolia...");
         } else {
             revert("Unsupported chain");
         }
 
-        IERC20 usdc = IERC20(usdcAddr);
+        IERC20 token = IERC20(tokenAddr);
 
         // 1. Deploy the Vault
-        NoLossVault vault = new NoLossVault(usdc, IPool(poolAddr), aUsdcAddr, "NoLoss Vault USDC", "nlUSDC");
+        NoLossVault vault = new NoLossVault(token, IPool(poolAddr), aTokenAddr, "NoLoss Vault LINK", "nlLINK");
         console.log("NoLossVault deployed at:", address(vault));
 
         // 2. SECURITY: Prevent Inflation Attack
-        // We deposit 1 USDC (1e6) immediately to burn the first shares.
+        // We deposit 1 LINK (1e18) immediately to burn the first shares.
         // ScaffoldEthDeployerRunner is already broadcasting, so we just call the functions.
 
-        if (usdc.balanceOf(deployer) >= 1e6) {
-            // Approve Vault to spend 1 USDC
-            usdc.approve(address(vault), 1e6);
+        if (token.balanceOf(deployer) >= 1e18) {
+            // Approve Vault to spend 1 LINK
+            token.approve(address(vault), 1e18);
 
             // Deposit (Mint shares to deployer)
-            vault.deposit(1e6, deployer);
+            vault.deposit(1e18, deployer);
 
-            console.log("Security Deposit (1 USDC) complete. Vault is safe.");
+            console.log("Security Deposit (1 LINK) complete. Vault is safe.");
         } else {
             console.log("--------------------------------------------------");
-            console.log("WARNING: Deployer has no USDC. Vault is vulnerable!");
+            console.log("WARNING: Deployer has no LINK. Vault is vulnerable!");
             console.log("Go to the Aave Faucet to get tokens for this chain.");
             console.log("--------------------------------------------------");
         }
 
         // 3. Deploy MarketController (Linked to Vault)
-        MarketController controller = new MarketController(address(vault), usdcAddr);
+        MarketController controller = new MarketController(address(vault), tokenAddr);
         console.log("MarketController deployed at:", address(controller));
 
         // 4. Export for Frontend

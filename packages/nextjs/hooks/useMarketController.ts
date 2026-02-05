@@ -59,6 +59,7 @@ export type PoolData = {
   totalPrincipalFormatted: string;
   yesPrincipalFormatted: string;
   noPrincipalFormatted: string;
+  isCreator: boolean;
 };
 
 export type UserBetData = {
@@ -100,6 +101,7 @@ export const usePoolCount = () => {
  */
 export const usePool = (poolId: number | null) => {
   const chainId = useChainId();
+  const { address } = useAccount();
   const { data, isLoading, refetch, isFetched } = useScaffoldReadContract({
     contractName: "MarketController",
     functionName: "pools",
@@ -135,6 +137,7 @@ export const usePool = (poolId: number | null) => {
           totalPrincipalFormatted: formatToken(data[4], chainId),
           yesPrincipalFormatted: formatToken(data[11], chainId),
           noPrincipalFormatted: formatToken(data[12], chainId),
+          isCreator: address?.toLowerCase() === data[0].toLowerCase(),
         }
       : null;
 
@@ -417,19 +420,4 @@ export const useAaveApy = () => {
     apyFormatted: "3.50",
     isLoading: false,
   };
-};
-
-/**
- * Format time remaining
- */
-export const formatTimeLeft = (seconds: number): string => {
-  if (seconds <= 0) return "Ended";
-
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-
-  if (days > 0) return `${days}d ${hours}h left`;
-  if (hours > 0) return `${hours}h ${minutes}m left`;
-  return `${minutes}m left`;
 };
