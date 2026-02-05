@@ -3,8 +3,17 @@ pragma solidity ^0.8.20;
 
 import { IERC20 } from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import { NoLossVault } from "./Vault.sol";
+// UMA Import matching your remappings
+import {
+    OptimisticOracleV2Interface
+} from "protocol/packages/core/contracts/optimistic-oracle-v2/interfaces/OptimisticOracleV2Interface.sol";
 
 contract MarketController {
+    // --- UMA CONFIGURATION ---
+    OptimisticOracleV2Interface public oo;
+    IERC20 public bondCurrency; // Usually WETH on testnets
+    bytes32 public constant IDENTIFIER = bytes32("YES_OR_NO_QUERY");
+
     struct Pool {
         address creator;
         string question;
@@ -12,28 +21,33 @@ contract MarketController {
         uint256 totalShares;
         uint256 totalPrincipal;
         uint256 creatorPrincipal;
+
+        // Resolution State
         bool resolved;
         bool outcome;
+
+        // UMA Oracle State
+        bool requestSubmitted;
+        uint256 requestTime;
+        bytes ancillaryData;
+
+        // Accounting
         uint256 yesPrincipal;
         uint256 noPrincipal;
-
-        // NEW: Track Time-Weighted Scores
-        uint256 totalYesWeight; // Sum of (DepositAmount * TimeLeft) for YES
-        uint256 totalNoWeight; // Sum of (DepositAmount * TimeLeft) for NO
-
+        uint256 totalYesWeight;
+        uint256 totalNoWeight;
         uint256 finalTotalYield;
     }
 
     struct UserBet {
         uint256 principal;
-        uint256 weight; // NEW: This user's "Score" (Amount * Time)
+        uint256 weight;
         bool side;
         bool claimed;
     }
 
     NoLossVault public vault;
     IERC20 public usdc;
-    address public owner;
 
     uint256 public poolCount;
     mapping(uint256 => Pool) public pools;
@@ -41,12 +55,15 @@ contract MarketController {
 
     event PoolCreated(uint256 indexed poolId, string question, uint256 endTime);
     event BetPlaced(uint256 indexed poolId, address indexed user, bool side, uint256 amount, uint256 weight);
+    event OracleRequested(uint256 indexed poolId, uint256 timestamp);
     event PoolResolved(uint256 indexed poolId, bool outcome, uint256 totalYield);
 
-    constructor(address _vaultAddress, address _usdcAddress) {
+    // Update Constructor to take OO Address and Bond Token Address
+    constructor(address _vaultAddress, address _usdcAddress, address _ooAddress, address _bondAddress) {
         vault = NoLossVault(_vaultAddress);
         usdc = IERC20(_usdcAddress);
-        owner = msg.sender;
+        oo = OptimisticOracleV2Interface(_ooAddress);
+        bondCurrency = IERC20(_bondAddress);
     }
 
     // --- VIEW FUNCTION ---
@@ -87,14 +104,11 @@ contract MarketController {
         newPool.totalPrincipal = _initialSeed;
         newPool.creatorPrincipal = _initialSeed;
 
-        // Note: Creator takes a flat 40% fee, so we don't need to track their "Weight"
-        // for the winner's pot calculation.
-
         emit PoolCreated(poolCount, _question, newPool.endTime);
         return poolCount;
     }
 
-    // --- 2. Place Bet (TIME WEIGHTED UPDATE) ---
+    // --- 2. Place Bet ---
     function placeBet(uint256 _poolId, bool _side, uint256 _amount) external {
         Pool storage pool = pools[_poolId];
         require(block.timestamp < pool.endTime, "Closed");
@@ -105,53 +119,83 @@ contract MarketController {
         usdc.approve(address(vault), _amount);
         uint256 sharesReceived = vault.deposit(_amount, address(this));
 
-        // --- NEW LOGIC START ---
-        // Calculate Weight based on Time Remaining
         uint256 timeRemaining = pool.endTime - block.timestamp;
         uint256 userWeight = _amount * timeRemaining;
-        // --- NEW LOGIC END ---
 
         pool.totalShares += sharesReceived;
         pool.totalPrincipal += _amount;
 
         if (_side) {
             pool.yesPrincipal += _amount;
-            pool.totalYesWeight += userWeight; // Track weight separately
+            pool.totalYesWeight += userWeight;
         } else {
             pool.noPrincipal += _amount;
             pool.totalNoWeight += userWeight;
         }
 
-        bets[_poolId][msg.sender] = UserBet({
-            principal: _amount,
-            side: _side,
-            claimed: false,
-            weight: userWeight // Save individual weight
-        });
+        bets[_poolId][msg.sender] = UserBet({ principal: _amount, side: _side, claimed: false, weight: userWeight });
 
         emit BetPlaced(_poolId, msg.sender, _side, _amount, userWeight);
     }
 
-    // --- 3. Resolve Pool ---
-    function resolvePool(uint256 _poolId, bool _outcome) external {
-        require(msg.sender == owner, "Only Owner");
+    // --- 3. Request Resolution (UMA STEP 1) ---
+    function requestResolution(uint256 _poolId) external {
         Pool storage pool = pools[_poolId];
+        require(block.timestamp > pool.endTime, "Betting still active");
+        require(!pool.requestSubmitted, "Already requested");
         require(!pool.resolved, "Already resolved");
-        require(block.timestamp >= pool.endTime, "Not ended");
+
+        pool.requestTime = block.timestamp;
+
+        // Construct Question: "Q: Is sky blue? A: 1 for Yes. 0 for No."
+        string memory questionStr = string(abi.encodePacked("Q: ", pool.question, " A: 1 for Yes. 0 for No."));
+        pool.ancillaryData = bytes(questionStr);
+
+        uint256 reward = 0; // We aren't paying the oracle (proposer pays bond)
+
+        // Request price from UMA
+        oo.requestPrice(IDENTIFIER, pool.requestTime, pool.ancillaryData, bondCurrency, reward);
+
+        // DEMO SETTING: 30 Seconds Liveness
+        oo.setCustomLiveness(IDENTIFIER, pool.requestTime, pool.ancillaryData, 30);
+
+        pool.requestSubmitted = true;
+        emit OracleRequested(_poolId, pool.requestTime);
+    }
+
+    // --- 4. Settle Resolution (UMA STEP 2) ---
+    function settleResolution(uint256 _poolId) external {
+        Pool storage pool = pools[_poolId];
+        require(pool.requestSubmitted, "Request not made");
+        require(!pool.resolved, "Already resolved");
+
+        // This will revert if liveness period hasn't passed
+        oo.settle(address(this), IDENTIFIER, pool.requestTime, pool.ancillaryData);
+
+        // Get the final price (1e18 = YES, 0 = NO)
+        int256 price = oo.getRequest(address(this), IDENTIFIER, pool.requestTime, pool.ancillaryData).resolvedPrice;
+
+        // Determine outcome (>= 0.5 is YES)
+        if (price >= 500000000000000000) {
+            pool.outcome = true;
+        } else {
+            pool.outcome = false;
+        }
 
         pool.resolved = true;
-        pool.outcome = _outcome;
 
+        // Calculate Yield (Existing Logic)
         uint256 currentAssets = vault.convertToAssets(pool.totalShares);
         if (currentAssets > pool.totalPrincipal) {
             pool.finalTotalYield = currentAssets - pool.totalPrincipal;
         } else {
             pool.finalTotalYield = 0;
         }
-        emit PoolResolved(_poolId, _outcome, pool.finalTotalYield);
+
+        emit PoolResolved(_poolId, pool.outcome, pool.finalTotalYield);
     }
 
-    // --- 4. Claim (TIME WEIGHTED PAYOUT) ---
+    // --- 5. Claim (Unchanged) ---
     function claim(uint256 _poolId) external {
         Pool storage pool = pools[_poolId];
         UserBet storage userBet = bets[_poolId][msg.sender];
@@ -162,31 +206,28 @@ contract MarketController {
 
         userBet.claimed = true;
 
-        // 1. ALWAYS Return Principal (No Loss)
         uint256 payout = userBet.principal;
 
-        // 2. Add Winnings based on WEIGHT, not Principal
         if (userBet.side == pool.outcome && pool.finalTotalYield > 0) {
             uint256 winnerPot = (pool.finalTotalYield * 60) / 100;
-
-            // Get Total WEIGHT of the winning side
             uint256 winningSideTotalWeight = pool.outcome ? pool.totalYesWeight : pool.totalNoWeight;
 
             if (winningSideTotalWeight > 0) {
-                // Formula: (MyWeight / TotalWinningWeight) * WinnerPot
                 uint256 userShare = (userBet.weight * winnerPot) / winningSideTotalWeight;
                 payout += userShare;
             }
         }
 
-        uint256 sharesToRedeem = vault.previewDeposit(payout);
-        if (sharesToRedeem > pool.totalShares) sharesToRedeem = pool.totalShares;
+        uint256 sharesToRedeem = vault.previewWithdraw(payout);
+        if (sharesToRedeem > pool.totalShares) {
+            sharesToRedeem = pool.totalShares;
+        }
 
         pool.totalShares -= sharesToRedeem;
-        vault.withdraw(payout, msg.sender, address(this));
+        vault.redeem(sharesToRedeem, msg.sender, address(this));
     }
 
-    // --- 5. Claim Creator Rewards (Unchanged) ---
+    // --- 6. Claim Creator Rewards (Unchanged) ---
     function claimCreatorRewards(uint256 _poolId) external {
         Pool storage pool = pools[_poolId];
         require(msg.sender == pool.creator, "Only Creator");
@@ -198,15 +239,16 @@ contract MarketController {
 
         uint256 payout = principal;
         if (pool.finalTotalYield > 0) {
-            // Creator gets the remaining 40% flat
             uint256 creatorFee = pool.finalTotalYield - ((pool.finalTotalYield * 60) / 100);
             payout += creatorFee;
         }
 
-        uint256 sharesToRedeem = vault.previewDeposit(payout);
-        if (sharesToRedeem > pool.totalShares) sharesToRedeem = pool.totalShares;
+        uint256 sharesToRedeem = vault.previewWithdraw(payout);
+        if (sharesToRedeem > pool.totalShares) {
+            sharesToRedeem = pool.totalShares;
+        }
 
         pool.totalShares -= sharesToRedeem;
-        vault.withdraw(payout, msg.sender, address(this));
+        vault.redeem(sharesToRedeem, msg.sender, address(this));
     }
 }

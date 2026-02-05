@@ -10,3 +10,8 @@
 [submodule "packages/foundry/lib/aave-v3-core"]
 	path = packages/foundry/lib/aave-v3-core
 	url = https://github.com/aave/aave-v3-core
+[submodule "packages/foundry/lib/protocol"]
+	path = packages/foundry/lib/protocol
+	url = https://github.com/UMAprotocol/protocol
+[submodule "lib/protocol"]
+	branch = master

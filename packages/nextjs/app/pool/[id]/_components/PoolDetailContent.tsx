@@ -7,18 +7,18 @@ import { ArrowLeft } from "lucide-react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import {
-  formatTimeLeft,
   useAaveApy,
   useClaim,
   useClaimCreatorRewards,
-  useContractOwner,
   usePlaceBet,
   usePool,
   usePoolMetrics,
-  useResolvePool,
+  useRequestResolution,
+  useSettleResolution,
   useUserBet,
 } from "~~/hooks/useMarketController";
 import { notification } from "~~/utils/scaffold-eth";
+import { formatTimeLeft } from "~~/utils/scaffold-eth/time";
 
 const FALLBACK_APY = 3.5;
 const PRIZE_POOL_SHARE = 60;
@@ -27,7 +27,7 @@ const CREATOR_SHARE = 40;
 export const PoolDetailContent = () => {
   const params = useParams();
   const router = useRouter();
-  const { isConnected, address, isReconnecting, status } = useAccount();
+  const { isConnected, isReconnecting, status } = useAccount();
   const [betAmount, setBetAmount] = useState(0);
   const [checkComplete, setCheckComplete] = useState(false);
 
@@ -44,11 +44,10 @@ export const PoolDetailContent = () => {
     }
   }, [isReconnecting, status]);
 
-  const poolId = Number(params.id);
+  const poolId = useMemo(() => (params.id ? (isNaN(Number(params.id)) ? null : Number(params.id)) : null), [params.id]);
   const { pool, isLoading: poolLoading, refetch: refetchPool } = usePool(poolId);
   const { userBet, refetch: refetchBet } = useUserBet(poolId);
   const { metrics } = usePoolMetrics(poolId);
-  const { owner } = useContractOwner();
   const { apy: fetchedApy, apyFormatted } = useAaveApy();
 
   const currentApy = fetchedApy ?? FALLBACK_APY;
@@ -56,9 +55,8 @@ export const PoolDetailContent = () => {
   const { placeBet, isPending: isBetting } = usePlaceBet();
   const { claim, isPending: isClaiming } = useClaim();
   const { claimCreatorRewards, isPending: isClaimingCreator } = useClaimCreatorRewards();
-  const { resolvePool, isPending: isResolving } = useResolvePool();
-
-  const isOwner = address && owner && address.toLowerCase() === owner.toLowerCase();
+  const { requestResolution, isPending: isRequesting } = useRequestResolution();
+  const { settleResolution, isPending: isSettling } = useSettleResolution();
 
   const projectedYield = useMemo(() => {
     if (!pool) {
@@ -144,6 +142,11 @@ export const PoolDetailContent = () => {
         return;
       }
 
+      if (poolId === null) {
+        notification.error("Invalid pool ID");
+        return;
+      }
+
       notification.info("Placing bet... Please approve LINK spending.");
       await placeBet(poolId, side, betAmount);
       notification.success(`Successfully bet ${betAmount} LINK on ${side ? "YES" : "NO"}!`);
@@ -160,6 +163,10 @@ export const PoolDetailContent = () => {
 
   const handleClaim = async () => {
     try {
+      if (poolId === null) {
+        notification.error("Invalid pool ID");
+        return;
+      }
       notification.info("Claiming winnings...");
       await claim(poolId);
       notification.success("Successfully claimed your winnings!");
@@ -173,6 +180,10 @@ export const PoolDetailContent = () => {
 
   const handleClaimCreatorRewards = async () => {
     try {
+      if (poolId === null) {
+        notification.error("Invalid pool ID");
+        return;
+      }
       notification.info("Claiming creator rewards...");
       await claimCreatorRewards(poolId);
       notification.success("Successfully claimed creator rewards!");
@@ -184,20 +195,41 @@ export const PoolDetailContent = () => {
     }
   };
 
-  const handleResolvePool = async (outcome: boolean) => {
+  const handleRequestResolution = async () => {
     try {
-      notification.info(`Resolving pool with outcome: ${outcome ? "YES" : "NO"}...`);
-      await resolvePool(poolId, outcome);
-      notification.success(`Pool resolved successfully! Outcome: ${outcome ? "YES" : "NO"}`);
+      if (poolId === null) {
+        notification.error("Invalid pool ID");
+        return;
+      }
+      notification.info("Requesting resolution from UMA oracle...");
+      await requestResolution(poolId);
+      notification.success("Resolution requested successfully!");
       refetchPool();
     } catch (error: unknown) {
-      console.error("Error resolving pool:", error);
-      const errorMessage = error instanceof Error ? error.message : "Failed to resolve pool";
+      console.error("Error requesting resolution:", error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to request resolution";
       notification.error(errorMessage);
     }
   };
 
-  if (!checkComplete || poolLoading) {
+  const handleSettleResolution = async () => {
+    try {
+      if (poolId === null) {
+        notification.error("Invalid pool ID");
+        return;
+      }
+      notification.info("Settling oracle resolution...");
+      await settleResolution(poolId);
+      notification.success("Pool resolved successfully!");
+      refetchPool();
+    } catch (error: unknown) {
+      console.error("Error settling resolution:", error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to settle resolution";
+      notification.error(errorMessage);
+    }
+  };
+
+  if (poolId === null || !checkComplete || poolLoading) {
     return <PageLoader />;
   }
 
@@ -221,8 +253,7 @@ export const PoolDetailContent = () => {
     );
   }
 
-  const isCreator = address?.toLowerCase() === pool.creator.toLowerCase();
-  const canClaimCreatorRewards = isCreator && pool.resolved && pool.creatorPrincipal > BigInt(0);
+  const canClaimCreatorRewards = pool.isCreator && pool.resolved && pool.creatorPrincipal > BigInt(0);
 
   return (
     <div className="flex min-h-screen w-full bg-white relative overflow-x-hidden font-sans selection:bg-[#a88ff0] selection:text-white pb-20">
@@ -290,12 +321,12 @@ export const PoolDetailContent = () => {
 
                 <div className="mb-8 p-5 bg-[#a88ff0]/5 rounded-xl border-2 border-[#a88ff0]/30">
                   <h4 className="text-sm font-bold text-black mb-4 uppercase tracking-wide">Projected Returns</h4>
-                  <div className={isCreator ? "grid grid-cols-2 gap-6" : ""}>
+                  <div className={pool.isCreator ? "grid grid-cols-2 gap-6" : ""}>
                     <div>
                       <p className="text-xs text-gray-500 mb-1 font-medium">Prize Pool (60%)</p>
                       <p className="text-xl font-bold text-black">{projectedYield.prizePool.toFixed(4)} LINK</p>
                     </div>
-                    {isCreator && (
+                    {pool.isCreator && (
                       <div>
                         <p className="text-xs text-gray-500 mb-1 font-medium">Your Reward (40%)</p>
                         <p className="text-xl font-bold text-[#a88ff0]">
@@ -335,41 +366,47 @@ export const PoolDetailContent = () => {
                   <div className="mb-12">
                     <h2 className="text-2xl font-bold text-black mb-4 uppercase tracking-wide">AND THE RESULT IS:</h2>
                     <p
-                      className={`text-7xl md:text-8xl font-black mb-4 ${pool.outcome ? "text-[#10b981]" : "text-[#f87171]"}`}
+                      className={`text-7xl md:text-8xl font-black mb-4 ${
+                        pool.outcome ? "text-[#10b981]" : "text-[#f87171]"
+                      }`}
                     >
                       {pool.outcome ? "YES" : "NO"}!
                     </p>
                   </div>
-                ) : isOwner ? (
-                  <div className="mb-12 p-6 bg-orange-50 border-2 border-orange-400 rounded-xl">
-                    <h3 className="text-lg font-bold text-orange-800 mb-2">🔐 Owner: Resolve This Pool</h3>
-                    <p className="text-orange-700 mb-6">
-                      Betting period has ended. As the contract owner, you can resolve this pool by selecting the
-                      winning outcome.
-                    </p>
-                    <div className="flex gap-4">
-                      <button
-                        onClick={() => handleResolvePool(true)}
-                        disabled={isResolving}
-                        className="flex-1 py-4 rounded-xl text-xl font-bold bg-[#4ade80] text-black border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-[#22c55e] transition-all active:shadow-none active:translate-x-[4px] active:translate-y-[4px] disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isResolving ? "Resolving..." : "Resolve YES ✓"}
-                      </button>
-                      <button
-                        onClick={() => handleResolvePool(false)}
-                        disabled={isResolving}
-                        className="flex-1 py-4 rounded-xl text-xl font-bold bg-[#f87171] text-black border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-[#ef4444] transition-all active:shadow-none active:translate-x-[4px] active:translate-y-[4px] disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isResolving ? "Resolving..." : "Resolve NO ✗"}
-                      </button>
-                    </div>
-                  </div>
                 ) : (
-                  <div className="mb-12 p-6 bg-yellow-50 border-2 border-yellow-400 rounded-xl">
-                    <h3 className="text-lg font-bold text-yellow-800 mb-2">Awaiting Resolution</h3>
-                    <p className="text-yellow-700">
-                      Betting period has ended. Waiting for the contract owner to resolve the outcome.
-                    </p>
+                  <div className="mb-12 p-6 bg-blue-50 border-2 border-blue-400 rounded-xl">
+                    <h3 className="text-lg font-bold text-blue-800 mb-2">🔮 Oracle Resolution</h3>
+                    {!pool.requestSubmitted ? (
+                      <>
+                        <p className="text-blue-700 mb-6">
+                          The betting period has ended. Anyone can now request the oracle to resolve the outcome.
+                        </p>
+                        <button
+                          onClick={handleRequestResolution}
+                          disabled={isRequesting}
+                          className="w-full py-4 rounded-xl text-xl font-bold bg-blue-500 text-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-blue-600 transition-all active:shadow-none active:translate-x-[4px] active:translate-y-[4px] disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isRequesting ? "Requesting..." : "Request Resolution"}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-blue-700 mb-6">
+                          Resolution has been requested. The outcome will be available after the liveness period (30s
+                          for testnet).
+                        </p>
+                        <button
+                          onClick={handleSettleResolution}
+                          disabled={isSettling || !pool.canSettle}
+                          className="w-full py-4 rounded-xl text-xl font-bold bg-green-500 text-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-green-600 transition-all active:shadow-none active:translate-x-[4px] active:translate-y-[4px] disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isSettling ? "Settling..." : "Settle Resolution"}
+                        </button>
+                        {!pool.canSettle && (
+                          <p className="text-xs text-center mt-2 text-gray-500">Settlement is not yet available.</p>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -453,7 +490,7 @@ export const PoolDetailContent = () => {
             )}
           </div>
 
-          {pool.isLive && !userBet?.hasBet && !isCreator && (
+          {pool.isLive && !userBet?.hasBet && !pool.isCreator && (
             <div className="sticky top-8">
               <div
                 className="w-full md:w-[400px] bg-white rounded-[40px] p-8 border-[3px] border-black shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] relative z-10"
@@ -517,7 +554,7 @@ export const PoolDetailContent = () => {
             </div>
           )}
 
-          {pool.isLive && isCreator && !userBet?.hasBet && (
+          {pool.isLive && pool.isCreator && !userBet?.hasBet && (
             <div className="sticky top-8">
               <div
                 className="w-full md:w-[400px] bg-gray-50 rounded-[40px] p-8 border-[3px] border-gray-300"
@@ -538,7 +575,7 @@ export const PoolDetailContent = () => {
                 className="w-full md:w-[400px] bg-[#a88ff0]/10 rounded-[40px] p-8 border-[3px] border-[#a88ff0]"
                 style={{ fontFamily: "'Clash Display', sans-serif" }}
               >
-                <h3 className="text-2xl font-bold text-black mb-4">Bet Placed! 🎉</h3>
+                <h3 className="text-2xl font-bold text-black mb-4">Bet Placed! </h3>
                 <p className="text-gray-600">
                   You already placed a bet on this pool. Wait for the betting period to end and the pool to be resolved
                   to claim your winnings.

@@ -7,7 +7,7 @@ import { GenericContractsDeclaration } from "~~/utils/scaffold-eth/contract";
 const deployedContracts = {
   84532: {
     MarketController: {
-      address: "0xe5a5148fea475d65e0542e6c111073e06ffb14d5",
+      address: "0x64949fedafb776922e18e0908df50db789fdfbc8",
       abi: [
         {
           type: "constructor",
@@ -22,8 +22,31 @@ const deployedContracts = {
               type: "address",
               internalType: "address",
             },
+            {
+              name: "_ooAddress",
+              type: "address",
+              internalType: "address",
+            },
+            {
+              name: "_bondAddress",
+              type: "address",
+              internalType: "address",
+            },
           ],
           stateMutability: "nonpayable",
+        },
+        {
+          type: "function",
+          name: "IDENTIFIER",
+          inputs: [],
+          outputs: [
+            {
+              name: "",
+              type: "bytes32",
+              internalType: "bytes32",
+            },
+          ],
+          stateMutability: "view",
         },
         {
           type: "function",
@@ -60,6 +83,19 @@ const deployedContracts = {
               name: "claimed",
               type: "bool",
               internalType: "bool",
+            },
+          ],
+          stateMutability: "view",
+        },
+        {
+          type: "function",
+          name: "bondCurrency",
+          inputs: [],
+          outputs: [
+            {
+              name: "",
+              type: "address",
+              internalType: "contract IERC20",
             },
           ],
           stateMutability: "view",
@@ -150,13 +186,13 @@ const deployedContracts = {
         },
         {
           type: "function",
-          name: "owner",
+          name: "oo",
           inputs: [],
           outputs: [
             {
               name: "",
               type: "address",
-              internalType: "address",
+              internalType: "contract OptimisticOracleV2Interface",
             },
           ],
           stateMutability: "view",
@@ -249,6 +285,21 @@ const deployedContracts = {
               internalType: "bool",
             },
             {
+              name: "requestSubmitted",
+              type: "bool",
+              internalType: "bool",
+            },
+            {
+              name: "requestTime",
+              type: "uint256",
+              internalType: "uint256",
+            },
+            {
+              name: "ancillaryData",
+              type: "bytes",
+              internalType: "bytes",
+            },
+            {
               name: "yesPrincipal",
               type: "uint256",
               internalType: "uint256",
@@ -278,17 +329,25 @@ const deployedContracts = {
         },
         {
           type: "function",
-          name: "resolvePool",
+          name: "requestResolution",
           inputs: [
             {
               name: "_poolId",
               type: "uint256",
               internalType: "uint256",
             },
+          ],
+          outputs: [],
+          stateMutability: "nonpayable",
+        },
+        {
+          type: "function",
+          name: "settleResolution",
+          inputs: [
             {
-              name: "_outcome",
-              type: "bool",
-              internalType: "bool",
+              name: "_poolId",
+              type: "uint256",
+              internalType: "uint256",
             },
           ],
           outputs: [],
@@ -359,6 +418,25 @@ const deployedContracts = {
         },
         {
           type: "event",
+          name: "OracleRequested",
+          inputs: [
+            {
+              name: "poolId",
+              type: "uint256",
+              indexed: true,
+              internalType: "uint256",
+            },
+            {
+              name: "timestamp",
+              type: "uint256",
+              indexed: false,
+              internalType: "uint256",
+            },
+          ],
+          anonymous: false,
+        },
+        {
+          type: "event",
           name: "PoolCreated",
           inputs: [
             {
@@ -409,12 +487,12 @@ const deployedContracts = {
         },
       ],
       inheritedFunctions: {},
-      deployedOnBlock: 34681992,
+      deployedOnBlock: 35108151,
     },
   },
   11155111: {
     MarketController: {
-      address: "0x2f26b861decd76c50d7fe47421faa2a1eafe3110",
+      address: "0xb46e15f25911c768b513d134ad08e788d7e5b820",
       abi: [
         {
           type: "constructor",
@@ -429,8 +507,31 @@ const deployedContracts = {
               type: "address",
               internalType: "address",
             },
+            {
+              name: "_ooAddress",
+              type: "address",
+              internalType: "address",
+            },
+            {
+              name: "_bondAddress",
+              type: "address",
+              internalType: "address",
+            },
           ],
           stateMutability: "nonpayable",
+        },
+        {
+          type: "function",
+          name: "IDENTIFIER",
+          inputs: [],
+          outputs: [
+            {
+              name: "",
+              type: "bytes32",
+              internalType: "bytes32",
+            },
+          ],
+          stateMutability: "view",
         },
         {
           type: "function",
@@ -467,6 +568,19 @@ const deployedContracts = {
               name: "claimed",
               type: "bool",
               internalType: "bool",
+            },
+          ],
+          stateMutability: "view",
+        },
+        {
+          type: "function",
+          name: "bondCurrency",
+          inputs: [],
+          outputs: [
+            {
+              name: "",
+              type: "address",
+              internalType: "contract IERC20",
             },
           ],
           stateMutability: "view",
@@ -557,13 +671,13 @@ const deployedContracts = {
         },
         {
           type: "function",
-          name: "owner",
+          name: "oo",
           inputs: [],
           outputs: [
             {
               name: "",
               type: "address",
-              internalType: "address",
+              internalType: "contract OptimisticOracleV2Interface",
             },
           ],
           stateMutability: "view",
@@ -656,6 +770,21 @@ const deployedContracts = {
               internalType: "bool",
             },
             {
+              name: "requestSubmitted",
+              type: "bool",
+              internalType: "bool",
+            },
+            {
+              name: "requestTime",
+              type: "uint256",
+              internalType: "uint256",
+            },
+            {
+              name: "ancillaryData",
+              type: "bytes",
+              internalType: "bytes",
+            },
+            {
               name: "yesPrincipal",
               type: "uint256",
               internalType: "uint256",
@@ -685,17 +814,25 @@ const deployedContracts = {
         },
         {
           type: "function",
-          name: "resolvePool",
+          name: "requestResolution",
           inputs: [
             {
               name: "_poolId",
               type: "uint256",
               internalType: "uint256",
             },
+          ],
+          outputs: [],
+          stateMutability: "nonpayable",
+        },
+        {
+          type: "function",
+          name: "settleResolution",
+          inputs: [
             {
-              name: "_outcome",
-              type: "bool",
-              internalType: "bool",
+              name: "_poolId",
+              type: "uint256",
+              internalType: "uint256",
             },
           ],
           outputs: [],
@@ -766,6 +903,25 @@ const deployedContracts = {
         },
         {
           type: "event",
+          name: "OracleRequested",
+          inputs: [
+            {
+              name: "poolId",
+              type: "uint256",
+              indexed: true,
+              internalType: "uint256",
+            },
+            {
+              name: "timestamp",
+              type: "uint256",
+              indexed: false,
+              internalType: "uint256",
+            },
+          ],
+          anonymous: false,
+        },
+        {
+          type: "event",
           name: "PoolCreated",
           inputs: [
             {
@@ -816,7 +972,7 @@ const deployedContracts = {
         },
       ],
       inheritedFunctions: {},
-      deployedOnBlock: 9823909,
+      deployedOnBlock: 9899099,
     },
   },
 } as const;

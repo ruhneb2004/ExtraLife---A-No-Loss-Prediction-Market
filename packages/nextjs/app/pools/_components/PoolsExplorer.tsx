@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, Loader2, Search } from "lucide-react";
-import { PoolData, formatTimeLeft, usePool, usePoolCount } from "~~/hooks/useMarketController";
+import { PoolData, usePool, usePoolCount } from "~~/hooks/useMarketController";
+import { formatTimeLeft } from "~~/utils/scaffold-eth/time";
 
 type PoolStatus = "live" | "closed" | "resolved";
 
