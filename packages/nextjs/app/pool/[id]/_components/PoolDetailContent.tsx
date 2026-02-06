@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { GlobalStyles, PageLoader, Sidebar, TopNav } from "../../../_components";
 import { ArrowLeft } from "lucide-react";
 import { formatUnits } from "viem";
-import { useAccount } from "wagmi";
+import { useAccount, useEnsName } from "wagmi";
 import {
   useAaveApy,
   useClaim,
@@ -32,19 +32,13 @@ export const PoolDetailContent = () => {
   const [checkComplete, setCheckComplete] = useState(false);
 
   useEffect(() => {
-    if (isReconnecting || status === "connecting") {
-      return;
-    }
-
-    if (status === "connected" || status === "disconnected") {
-      const timer = setTimeout(() => {
-        setCheckComplete(true);
-      }, 100);
-      return () => clearTimeout(timer);
-    }
+    if (isReconnecting || status === "connecting") return;
+    const timer = setTimeout(() => setCheckComplete(true), 100);
+    return () => clearTimeout(timer);
   }, [isReconnecting, status]);
 
-  const poolId = useMemo(() => (params.id ? (isNaN(Number(params.id)) ? null : Number(params.id)) : null), [params.id]);
+  const poolId = useMemo(() => (params.id && !isNaN(Number(params.id)) ? Number(params.id) : null), [params.id]);
+
   const { pool, isLoading: poolLoading, refetch: refetchPool } = usePool(poolId);
   const { userBet, refetch: refetchBet } = useUserBet(poolId);
   const { metrics } = usePoolMetrics(poolId);
@@ -58,10 +52,30 @@ export const PoolDetailContent = () => {
   const { requestResolution, isPending: isRequesting } = useRequestResolution();
   const { settleResolution, isPending: isSettling } = useSettleResolution();
 
+  /* ---------- ENS ---------- */
+
+  const creatorAddress = pool?.creator;
+
+  const { data: ensName } = useEnsName({
+    address: creatorAddress ?? undefined,
+    chainId: 1,
+    query: {
+      staleTime: 1000 * 60 * 5,
+      retry: 1,
+    },
+  });
+
+  const creatorDisplay = useMemo(() => {
+    if (!creatorAddress) return "";
+    console.log(creatorAddress);
+    if (ensName) return ensName;
+    return `${creatorAddress.slice(0, 6)}...${creatorAddress.slice(-4)}`;
+  }, [creatorAddress, ensName]);
+
+  /* ---------- YIELD ---------- */
+
   const projectedYield = useMemo(() => {
-    if (!pool) {
-      return { totalYield: 0, prizePool: 0, creatorReward: 0 };
-    }
+    if (!pool) return { totalYield: 0, prizePool: 0, creatorReward: 0 };
 
     const totalPrincipal = parseFloat(pool.totalPrincipalFormatted);
     const daysRemaining = pool.timeLeftSeconds / (24 * 60 * 60);
@@ -75,202 +89,108 @@ export const PoolDetailContent = () => {
       };
     }
 
-    const currentAccruedYield = metrics ? parseFloat(metrics.currentTotalYieldFormatted) : 0;
-    const futureYield = totalPrincipal * (currentApy / 100) * (daysRemaining / 365);
-    const projectedTotalYield = currentAccruedYield + futureYield;
-
-    const projectedPrizePool = projectedTotalYield * (PRIZE_POOL_SHARE / 100);
-    const projectedCreatorReward = projectedTotalYield * (CREATOR_SHARE / 100);
+    const accrued = metrics ? parseFloat(metrics.currentTotalYieldFormatted) : 0;
+    const future = totalPrincipal * (currentApy / 100) * (daysRemaining / 365);
+    const total = accrued + future;
 
     return {
-      totalYield: projectedTotalYield,
-      prizePool: projectedPrizePool,
-      creatorReward: projectedCreatorReward,
+      totalYield: total,
+      prizePool: total * (PRIZE_POOL_SHARE / 100),
+      creatorReward: total * (CREATOR_SHARE / 100),
     };
   }, [pool, metrics, currentApy]);
 
   const userPayout = useMemo(() => {
-    if (!pool || !userBet?.hasBet || !pool.resolved) {
-      return null;
-    }
+    if (!pool || !userBet?.hasBet || !pool.resolved) return null;
 
-    const userPrincipal = parseFloat(userBet.principalFormatted);
+    const principal = parseFloat(userBet.principalFormatted);
     const isWinner = userBet.side === pool.outcome;
 
     if (!isWinner) {
-      return {
-        isWinner: false,
-        principal: userPrincipal,
-        winnings: 0,
-        total: userPrincipal,
-      };
+      return { isWinner: false, principal, winnings: 0, total: principal };
     }
 
     const prizePool = projectedYield.prizePool;
     const userWeight = Number(userBet.weight);
-    const totalWinningWeight = userBet.side ? Number(pool.totalYesWeight) : Number(pool.totalNoWeight);
+    const totalWeight = userBet.side ? Number(pool.totalYesWeight) : Number(pool.totalNoWeight);
 
-    const userShare = totalWinningWeight > 0 ? (userWeight / totalWinningWeight) * prizePool : 0;
+    const winnings = totalWeight > 0 ? (userWeight / totalWeight) * prizePool : 0;
 
     return {
       isWinner: true,
-      principal: userPrincipal,
-      winnings: userShare,
-      total: userPrincipal + userShare,
+      principal,
+      winnings,
+      total: principal + winnings,
     };
   }, [pool, userBet, projectedYield]);
 
   const creatorPayout = useMemo(() => {
-    if (!pool || !pool.resolved) {
-      return null;
-    }
+    if (!pool || !pool.resolved) return null;
 
-    const creatorPrincipal = parseFloat(formatUnits(pool.creatorPrincipal, 18));
-    const creatorReward = projectedYield.creatorReward;
+    const principal = parseFloat(formatUnits(pool.creatorPrincipal, 18));
+    const reward = projectedYield.creatorReward;
 
     return {
-      principal: creatorPrincipal,
-      reward: creatorReward,
-      total: creatorPrincipal + creatorReward,
+      principal,
+      reward,
+      total: principal + reward,
     };
   }, [pool, projectedYield]);
 
+  /* ---------- ACTIONS ---------- */
+
   const handlePlaceBet = async (side: boolean) => {
     try {
-      if (betAmount <= 0) {
-        notification.error("Please enter an amount");
-        return;
-      }
-
-      if (poolId === null) {
-        notification.error("Invalid pool ID");
-        return;
-      }
-
-      notification.info("Placing bet... Please approve LINK spending.");
+      if (betAmount <= 0 || poolId === null) return;
+      notification.info("Placing bet...");
       await placeBet(poolId, side, betAmount);
-      notification.success(`Successfully bet ${betAmount} LINK on ${side ? "YES" : "NO"}!`);
-
       setBetAmount(0);
       refetchPool();
       refetchBet();
-    } catch (error: unknown) {
-      console.error("Error placing bet:", error);
-      const errorMessage = error instanceof Error ? error.message : "Failed to place bet";
-      notification.error(errorMessage);
+    } catch (e: any) {
+      notification.error(e?.message ?? "Failed to place bet");
     }
   };
 
   const handleClaim = async () => {
-    try {
-      if (poolId === null) {
-        notification.error("Invalid pool ID");
-        return;
-      }
-      notification.info("Claiming winnings...");
-      await claim(poolId);
-      notification.success("Successfully claimed your winnings!");
-      refetchBet();
-    } catch (error: unknown) {
-      console.error("Error claiming:", error);
-      const errorMessage = error instanceof Error ? error.message : "Failed to claim";
-      notification.error(errorMessage);
-    }
+    if (poolId === null) return;
+    await claim(poolId);
+    refetchBet();
   };
 
   const handleClaimCreatorRewards = async () => {
-    try {
-      if (poolId === null) {
-        notification.error("Invalid pool ID");
-        return;
-      }
-      notification.info("Claiming creator rewards...");
-      await claimCreatorRewards(poolId);
-      notification.success("Successfully claimed creator rewards!");
-      refetchPool();
-    } catch (error: unknown) {
-      console.error("Error claiming creator rewards:", error);
-      const errorMessage = error instanceof Error ? error.message : "Failed to claim creator rewards";
-      notification.error(errorMessage);
-    }
+    if (poolId === null) return;
+    await claimCreatorRewards(poolId);
+    refetchPool();
   };
 
   const handleRequestResolution = async () => {
-    try {
-      if (poolId === null) {
-        notification.error("Invalid pool ID");
-        return;
-      }
-      notification.info("Requesting resolution from UMA oracle...");
-      await requestResolution(poolId);
-      notification.success("Resolution requested successfully!");
-      refetchPool();
-    } catch (error: unknown) {
-      console.error("Error requesting resolution:", error);
-      const errorMessage = error instanceof Error ? error.message : "Failed to request resolution";
-      notification.error(errorMessage);
-    }
+    if (poolId === null) return;
+    await requestResolution(poolId);
+    refetchPool();
   };
 
   const handleSettleResolution = async () => {
-    try {
-      if (poolId === null) {
-        notification.error("Invalid pool ID");
-        return;
-      }
-      notification.info("Settling oracle resolution...");
-      await settleResolution(poolId);
-      notification.success("Pool resolved successfully!");
-      refetchPool();
-    } catch (error: unknown) {
-      console.error("Error settling resolution:", error);
-      const errorMessage = error instanceof Error ? error.message : "Failed to settle resolution";
-      notification.error(errorMessage);
-    }
+    if (poolId === null) return;
+    await settleResolution(poolId);
+    refetchPool();
   };
 
-  if (poolId === null || !checkComplete || poolLoading) {
-    return <PageLoader />;
-  }
-
-  if (!pool) {
-    return (
-      <div className="flex min-h-screen w-full bg-white relative overflow-x-hidden font-sans">
-        <GlobalStyles />
-        <Sidebar />
-        <main className="flex-1 ml-[240px] relative py-12 px-12 flex items-center justify-center">
-          <div
-            className="bg-white rounded-[32px] p-12 border-2 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] text-center"
-            style={{ fontFamily: "'Clash Display', sans-serif" }}
-          >
-            <p className="text-gray-400 text-xl">Pool not found</p>
-            <button onClick={() => router.push("/pools")} className="mt-4 text-[#a88ff0] hover:underline">
-              Back to pools
-            </button>
-          </div>
-        </main>
-      </div>
-    );
-  }
+  if (poolId === null || !checkComplete || poolLoading) return <PageLoader />;
+  if (!pool) return <PageLoader />;
 
   const canClaimCreatorRewards = pool.isCreator && pool.resolved && pool.creatorPrincipal > BigInt(0);
 
   return (
-    <div className="flex min-h-screen w-full bg-white relative overflow-x-hidden font-sans selection:bg-[#a88ff0] selection:text-white pb-20">
+    <div className="flex min-h-screen w-full bg-white relative overflow-x-hidden font-sans">
       <GlobalStyles />
-
       <Sidebar />
-
       <TopNav />
 
-      <main className="flex-1 ml-[240px] relative py-12 pr-12 pl-8 max-w-[1400px]">
-        <button
-          onClick={() => router.back()}
-          className="flex items-center gap-2 text-gray-400 hover:text-black transition-colors mb-12"
-          style={{ fontFamily: "'Clash Display', sans-serif" }}
-        >
+      <main className="flex-1 ml-[240px] py-12 pr-12 pl-8 max-w-[1400px]">
+        <button onClick={() => router.back()} className="flex items-center gap-2 text-gray-400 hover:text-black mb-12">
           <ArrowLeft size={20} />
-          <span>Back</span>
+          Back
         </button>
 
         <div className="flex flex-col lg:flex-row gap-16 items-start">
@@ -279,7 +199,7 @@ export const PoolDetailContent = () => {
               {pool.question}
             </h1>
 
-            <div className="flex items-center gap-2 mb-12">
+            <div className="flex items-center gap-3 mb-12 flex-wrap">
               <div className={`w-3 h-3 rounded-full ${pool.isLive ? "bg-[#4ade80] animate-pulse" : "bg-[#f87171]"}`} />
               <span className={`font-medium text-sm ${pool.isLive ? "text-[#4ade80]" : "text-[#f87171]"}`}>
                 {pool.isLive
@@ -288,8 +208,8 @@ export const PoolDetailContent = () => {
                     ? "Resolved"
                     : "Betting period over"}
               </span>
+              <span className="text-black text-sm font-medium">· Created by {creatorDisplay}</span>
             </div>
-
             {pool.isLive ? (
               <>
                 <div className="mb-12 p-6 border-l-4 border-[#a88ff0] bg-gray-50">
