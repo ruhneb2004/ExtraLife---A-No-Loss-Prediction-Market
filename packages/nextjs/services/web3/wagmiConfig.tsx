@@ -8,10 +8,10 @@ import { getAlchemyHttpUrl } from "~~/utils/scaffold-eth";
 const { targetNetworks } = scaffoldConfig;
 
 // Use only the target networks from config (e.g., Sepolia)
-export const enabledChains = [mainnet, ...targetNetworks];
+export const enabledChains = [mainnet, ...targetNetworks] as const;
 
 export const wagmiConfig = createConfig({
-  chains: enabledChains,
+  chains: enabledChains as readonly [Chain, ...Chain[]],
   connectors: wagmiConnectors(),
   ssr: true,
   client: ({ chain }) => {
