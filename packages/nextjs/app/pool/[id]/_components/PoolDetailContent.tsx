@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { GlobalStyles, PageLoader, Sidebar, TopNav } from "../../../_components";
 import { ArrowLeft } from "lucide-react";
@@ -208,7 +209,17 @@ export const PoolDetailContent = () => {
                     ? "Resolved"
                     : "Betting period over"}
               </span>
-              <span className="text-black text-sm font-medium">· Created by {creatorDisplay}</span>
+              {creatorAddress && (
+                <span className="text-black text-sm font-medium">
+                  · Created by{" "}
+                  <Link
+                    href={`/profile/${creatorAddress}`}
+                    className="text-[#a88ff0] hover:text-[#9370db] hover:underline transition-colors cursor-pointer"
+                  >
+                    {creatorDisplay}
+                  </Link>
+                </span>
+              )}
             </div>
             {pool.isLive ? (
               <>

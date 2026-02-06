@@ -2,6 +2,7 @@ export { BackgroundDecorations } from "./BackgroundDecorations";
 export { Card, type CardItem } from "./Card";
 export { ConnectWalletButton } from "./ConnectWalletButton";
 export { GlobalStyles } from "./GlobalStyles";
+export { HowItWorksProvider, useHowItWorks } from "./HowItWorksContext";
 export { Marquee } from "./Marquee";
 export { PageLoader } from "./PageLoader";
 export { Sidebar } from "./Sidebar";

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { SwapWidget } from "../../components/LifiSwapWidget";
 import { ConnectWalletButton } from "./ConnectWalletButton";
+import { useHowItWorks } from "./HowItWorksContext";
 import { X } from "lucide-react";
 
 /**
@@ -10,14 +10,14 @@ import { X } from "lucide-react";
  * Shows "How it Works" link and profile button
  */
 export const TopNav = () => {
-  const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const { showModal: showHowItWorks, openModal, closeModal } = useHowItWorks();
 
   return (
     <>
       {/* Top Navigation Bar */}
       <div className="fixed top-8 right-8 z-30 flex items-center gap-6">
         <button
-          onClick={() => setShowHowItWorks(true)}
+          onClick={openModal}
           className="text-gray-600 hover:text-black font-medium transition-colors"
           style={{ fontFamily: "'Clash Display', sans-serif" }}
         >
@@ -36,7 +36,7 @@ export const TopNav = () => {
           >
             {/* Close Button */}
             <button
-              onClick={() => setShowHowItWorks(false)}
+              onClick={closeModal}
               className="absolute top-6 right-6 text-gray-400 hover:text-black transition-colors"
             >
               <X size={24} />
@@ -123,7 +123,7 @@ export const TopNav = () => {
             </div>
 
             <button
-              onClick={() => setShowHowItWorks(false)}
+              onClick={closeModal}
               className="mt-6 w-full py-3 bg-black text-white font-bold rounded-xl hover:bg-gray-800 transition-colors"
             >
               Got it!

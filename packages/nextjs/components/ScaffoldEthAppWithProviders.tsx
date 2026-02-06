@@ -14,6 +14,7 @@ import { Toaster } from "react-hot-toast";
 import { WagmiProvider } from "wagmi";
 import { BlockieAvatar } from "~~/components/scaffold-eth";
 import { wagmiConfig } from "~~/services/web3/wagmiConfig";
+import { HowItWorksProvider } from "~~/app/_components";
 
 // 1. Configure LI.FI SDK (Outside component)
 createLifiConfig({
@@ -72,8 +73,10 @@ export const ScaffoldEthAppWithProviders = ({ children }: { children: React.Reac
           theme={mounted ? (isDarkMode ? darkTheme() : lightTheme()) : lightTheme()}
           showRecentTransactions={false}
         >
-          <ProgressBar height="3px" color="#a88ff0" options={{ showSpinner: false }} />
-          <ScaffoldEthApp>{children}</ScaffoldEthApp>
+          <HowItWorksProvider>
+            <ProgressBar height="3px" color="#a88ff0" options={{ showSpinner: false }} />
+            <ScaffoldEthApp>{children}</ScaffoldEthApp>
+          </HowItWorksProvider>
         </RainbowKitProvider>
       </LiFiWagmiWrapper>
     </QueryClientProvider>
