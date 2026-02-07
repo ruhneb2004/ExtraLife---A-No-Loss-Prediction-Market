@@ -41,7 +41,7 @@ export default function Home() {
             <span className="text-[#A684FF]">FUTURE.</span>
             <br />
             <span className="text-black">OWN THE </span>
-            <span className="text-black underline">OUTCOME.</span>
+            <span className="text-black underline decoration-red-500">OUTCOME.</span>
           </h1>
         </div>
 

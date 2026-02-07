@@ -143,7 +143,7 @@ const PoolCardWithFilter = ({
   return (
     <div
       onClick={handleClick}
-      className="group relative bg-white rounded-[32px] p-8 flex flex-col justify-between shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] hover:shadow-[16px_16px_0px_0px_rgba(0,0,0,1)] transition-all duration-300 cursor-pointer min-h-[320px] border-2 border-black"
+      className="group relative bg-white rounded-[32px] p-8 flex flex-col justify-between shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] hover:shadow-[16px_16px_0px_0px_rgba(0,0,0,1)] transition-all duration-300 cursor-pointer min-h-[320px] border-3 border-black"
       style={{ fontFamily: "'Clash Display', sans-serif" }}
     >
       <div>

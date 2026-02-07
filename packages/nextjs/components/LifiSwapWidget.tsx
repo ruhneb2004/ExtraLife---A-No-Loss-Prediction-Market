@@ -10,10 +10,6 @@ const widgetConfig: WidgetConfig = {
   integrator: "Your-dApp-Name", // Remember to change this!
   variant: "compact",
   appearance: "dark",
-  containerStyle: {
-    border: "1px solid rgb(234, 234, 234)",
-    borderRadius: "16px",
-  },
 };
 
 export const SwapWidget = () => {
@@ -37,17 +33,16 @@ export const SwapWidget = () => {
           <div className="absolute inset-0" onClick={() => setIsOpen(false)} />
 
           {/* The Widget Container */}
-          <div className="relative z-10 animation-fade-in-up">
+          <div className="relative z-10 animation-fade-in-up rounded-2xl border border-black bg-[#0b0b0b] shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
             {/* Close Button */}
             <button
               onClick={() => setIsOpen(false)}
               className="absolute -top-12 right-0 md:-right-12 p-2 text-white hover:text-gray-300 transition-colors"
             >
-              {/* If you don't have heroicons installed, just put "X" here */}
               <XMarkIcon className="w-8 h-8" />
             </button>
 
-            {/* The Actual LI.FI Widget */}
+            {/* LI.FI Widget */}
             <LiFiWidget config={widgetConfig} integrator="Your-dApp-Name" />
           </div>
         </div>
